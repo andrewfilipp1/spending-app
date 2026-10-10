@@ -296,7 +296,8 @@ struct StatsView: View {
             e.pids.insert(a.pid)
             map[k] = e
         }
-        return map.values.map { ($0.name, $0.cents, $0.pids.count) }.sorted { $0.cents > $1.cents }.prefix(8).map { $0 }
+        let rows: [(name: String, cents: Int, count: Int)] = map.values.map { (name: $0.name, cents: $0.cents, count: $0.pids.count) }
+        return Array(rows.sorted { (a: (name: String, cents: Int, count: Int), b: (name: String, cents: Int, count: Int)) in a.cents > b.cents }.prefix(8))
     }
 }
 

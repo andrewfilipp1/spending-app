@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Select Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)" && xcodebuild -version
       - name: Core tests
@@ -35,7 +35,7 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/Oikonomika.app Payload/
           zip -qry Oikonomika.ipa Payload
           ls -la Oikonomika.ipa
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Oikonomika-ipa
           path: ios/Oikonomika.ipa
