@@ -11,6 +11,10 @@ final class Store {
     private(set) var data = AppData()
     private(set) var loaded = false
     var errorMessage: String?
+    /// Bumped on every local change; lets sync notice edits made while it was running.
+    private(set) var changes = 0
+    /// The data as last written, to detect what changed (for sync).
+    private var lastSaved: AppData?
 
     private let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Data", isDirectory: true)
@@ -33,6 +37,7 @@ final class Store {
                 try write()
             }
             loaded = true
+            lastSaved = data
             errorMessage = nil
             mergeInbox()
         } catch {
@@ -64,11 +69,13 @@ final class Store {
         persist()
     }
 
+    /// Wipes this device only: signs out first, so the account's copy is not deleted too.
     func reset() {
         guard loaded else { return }
+        SyncManager.shared.signOut()
         data = AppData()
         try? FileManager.default.removeItem(at: inboxURL)
-        persist()
+        persist(local: false)
     }
 
     /// Called by the App Intent (e.g. a Shortcuts automation on every Apple Pay payment).
@@ -87,18 +94,32 @@ final class Store {
 
     func markAlertsSent(_ keys: [String]) {
         data.settings.alertsSent = Array((data.settings.alertsSent + keys).suffix(60))
+        lastSaved?.settings.alertsSent = data.settings.alertsSent // bookkeeping, not a user change
         try? write() // no persist(): avoids re-triggering alert checks
+    }
+
+    /// Data merged with the account's copy: saved as is, without counting as a local change.
+    func applySynced(_ merged: AppData) {
+        guard loaded else { return }
+        data = merged
+        persist(local: false)
     }
 
     // MARK: files
 
-    private func persist() {
+    private func persist(local: Bool = true) {
+        if local {
+            SyncMerge.stampChanges(prev: lastSaved, next: &data, now: Date().timeIntervalSince1970 * 1000)
+            changes += 1
+        }
+        lastSaved = data
         do {
             try write()
         } catch {
             errorMessage = "Σφάλμα αποθήκευσης: \(error.localizedDescription)"
         }
         Notifier.shared.dataChanged(self)
+        if local { SyncManager.shared.schedule() }
     }
 
     private func write() throws {

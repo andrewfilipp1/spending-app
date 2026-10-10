@@ -24,6 +24,8 @@ struct LogPaymentIntent: AppIntent {
             return .result(dialog: "Δεν αναγνωρίστηκε ποσό στο «\(amount)».")
         }
         Store.shared.logPayment(cents: cents, merchant: merchant)
+        SyncManager.shared.loadAccount()
+        await SyncManager.shared.syncNow()
         let text = merchant.isEmpty ? Fmt.money(cents) : "\(Fmt.money(cents)) · \(merchant)"
         return .result(dialog: "Καταχωρήθηκε: \(text)")
     }

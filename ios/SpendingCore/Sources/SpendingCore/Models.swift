@@ -220,6 +220,10 @@ public struct AppData: Codable, Equatable, Sendable {
     public var settings: Settings
     public var categories: [Category]
     public var purchases: [Purchase]
+    // Sync bookkeeping (see SyncMerge): when settings/categories last changed, and deleted purchase ids.
+    public var settingsUpdatedAt: Double = 0
+    public var categoriesUpdatedAt: Double = 0
+    public var deleted: [String: Double] = [:]
 
     public init(schema: Int = AppData.schemaVersion, settings: Settings = Settings(), categories: [Category] = AppData.defaultCategories, purchases: [Purchase] = []) {
         self.schema = schema
@@ -234,6 +238,9 @@ public struct AppData: Codable, Equatable, Sendable {
         settings = (try? c.decodeIfPresent(Settings.self, forKey: .settings)) ?? Settings()
         categories = (try? c.decodeIfPresent([LenientCategory].self, forKey: .categories))?.compactMap(\.value) ?? AppData.defaultCategories
         purchases = (try? c.decodeIfPresent([LenientPurchase].self, forKey: .purchases))?.compactMap(\.value) ?? []
+        settingsUpdatedAt = (try? c.decodeIfPresent(Double.self, forKey: .settingsUpdatedAt)) ?? 0
+        categoriesUpdatedAt = (try? c.decodeIfPresent(Double.self, forKey: .categoriesUpdatedAt)) ?? 0
+        deleted = (try? c.decodeIfPresent([String: Double].self, forKey: .deleted)) ?? [:]
     }
 
     public static let defaultCategories: [Category] = [
@@ -258,6 +265,9 @@ public struct AppData: Codable, Equatable, Sendable {
     public func sanitized() -> AppData {
         var d = self
         d.schema = AppData.schemaVersion
+        if d.deleted.count > 5000 {
+            d.deleted = Dictionary(uniqueKeysWithValues: d.deleted.sorted { $0.value > $1.value }.prefix(5000).map { ($0.key, $0.value) })
+        }
         let s = settings
         d.settings.weekStart = s.weekStart == 0 ? 0 : 1
         d.settings.currency = s.currency.range(of: #"^[A-Z]{3}$"#, options: .regularExpression) != nil ? s.currency : "EUR"

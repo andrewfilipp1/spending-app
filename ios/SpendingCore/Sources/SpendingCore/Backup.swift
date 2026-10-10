@@ -69,14 +69,18 @@ public enum Backup {
     }
 
     static func deriveKey(password: String, salt: Data, iterations: Int) throws -> SymmetricKey {
+        SymmetricKey(data: try pbkdf2(password: password, salt: salt, iterations: iterations, length: 32))
+    }
+
+    static func pbkdf2(password: String, salt: Data, iterations: Int, length: Int) throws -> [UInt8] {
         let pw = Array(password.utf8)
-        var out = [UInt8](repeating: 0, count: 32)
+        var out = [UInt8](repeating: 0, count: length)
         let status = salt.withUnsafeBytes { s in
             CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), pw.map { Int8(bitPattern: $0) }, pw.count,
                                  s.bindMemory(to: UInt8.self).baseAddress, salt.count,
                                  CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), UInt32(iterations), &out, out.count)
         }
         guard status == kCCSuccess else { throw BackupError.invalid }
-        return SymmetricKey(data: out)
+        return out
     }
 }

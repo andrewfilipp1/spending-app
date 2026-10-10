@@ -1,6 +1,7 @@
 import { db } from './db.js';
 import * as L from './logic.js';
 import { deriveKey, encryptJSON, decryptJSON, randomSalt, PBKDF2_ITERATIONS } from './crypto.js';
+import * as Sync from './sync.js';
 
 const APP_VERSION = self.APP_VERSION || 'dev';
 const SCHEMA = 2;
@@ -58,6 +59,10 @@ const state = {
   stats: { kind: 'month', ref: L.today(), mode: 'spread', cat: null, sel: null },
   history: { q: '', cat: '' },
   hiddenAt: null,
+  lastSaved: null, // data as last written, to detect what changed (for sync)
+  changes: 0, // bumped on every local save
+  account: null, // { username, encKey, auth, version, lastSync } while signed in
+  syncState: { busy: false, error: null },
 };
 
 const S = () => state.data.settings;
@@ -128,6 +133,12 @@ function sanitize(raw) {
     weekStart: rs.weekStart === 0 ? 0 : 1,
     currency: /^[A-Z]{3}$/.test(rs.currency) ? rs.currency : 'EUR',
     autoLockSec: AUTOLOCK_CHOICES.some(([s]) => s === rs.autoLockSec) ? rs.autoLockSec : 60,
+    // Used only by the iPhone app; kept so syncing through the web never drops them.
+    lockEnabled: rs.lockEnabled === true,
+    dailyReminder: rs.dailyReminder === true,
+    reminderMinutes: int(rs.reminderMinutes, 0, 1439, 21 * 60),
+    budgetAlerts: rs.budgetAlerts !== false,
+    alertsSent: (Array.isArray(rs.alertsSent) ? rs.alertsSent : []).filter((k) => typeof k === 'string').slice(-60).map((k) => k.slice(0, 80)),
   };
   let categories = Array.isArray(raw.categories)
     ? raw.categories
@@ -168,6 +179,7 @@ function sanitize(raw) {
       source: p.source === 'applepay' ? 'applepay' : 'manual',
       createdAt: Number.isFinite(p.createdAt) ? p.createdAt : 0,
       updatedAt: Number.isFinite(p.updatedAt) ? p.updatedAt : 0,
+      review: p.review === true,
       items: p.items
         .filter((i) => i && Number.isInteger(i.cents) && i.cents > 0 && i.cents < 1e11)
         .map((i) => ({
@@ -179,14 +191,28 @@ function sanitize(raw) {
         })),
     }))
     .filter((p) => p.items.length);
-  return { schema: SCHEMA, settings, categories, purchases };
+  const deleted = {};
+  if (raw.deleted && typeof raw.deleted === 'object') {
+    for (const [id, t] of Object.entries(raw.deleted).slice(-5000)) if (Number.isFinite(t)) deleted[str(id, 64)] = t;
+  }
+  const stamp = (v) => (Number.isFinite(v) ? v : 0);
+  return {
+    schema: SCHEMA, settings, categories, purchases, deleted,
+    settingsUpdatedAt: stamp(raw.settingsUpdatedAt), categoriesUpdatedAt: stamp(raw.categoriesUpdatedAt),
+  };
 }
 
 // ---------- persistence ----------
 
 let saveChain = Promise.resolve();
 
-function save() {
+function save({ stamp = true } = {}) {
+  if (stamp) {
+    L.stampChanges(state.lastSaved, state.data);
+    state.changes++;
+    scheduleSync();
+  }
+  state.lastSaved = structuredClone(state.data);
   const snapshot = structuredClone(state.data);
   const key = state.key;
   saveChain = saveChain
@@ -230,16 +256,19 @@ async function boot() {
 }
 
 function start() {
+  state.lastSaved = structuredClone(state.data);
   $('#lock').hidden = true;
   $('#app').hidden = false;
   moneyFmt = null;
   render();
   handleUrlParams();
   requestPersist();
+  loadAccount().then(() => syncNow());
 }
 
 function lockNow() {
   if (!state.meta?.encrypted || !state.data) return;
+  state.account = null;
   state.key = null;
   state.data = null;
   closeSheet();
@@ -337,6 +366,7 @@ function bindChrome() {
   });
 
   document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncNow();
     if (!state.meta?.encrypted || !state.data) return;
     if (document.hidden) {
       state.hiddenAt = Date.now();
@@ -346,6 +376,8 @@ function bindChrome() {
     }
   });
 }
+
+window.addEventListener('online', () => syncNow());
 
 function go(tab) {
   state.tab = tab;
@@ -771,11 +803,13 @@ function renderSettings() {
     <button class="btn full" data-action="test-paste">Δοκιμή: διάβασε το πρόχειρο</button>
   </section>
 
+  ${accountSection()}
+
   <section class="card">
     <h2 class="card-title">${ICON.lock} Ασφάλεια & ιδιωτικότητα</h2>
     <ul class="facts small">
-      <li>✅ Όλα τα δεδομένα μένουν <strong>μόνο σε αυτή τη συσκευή</strong> — χωρίς server, λογαριασμό, analytics ή tracking.</li>
-      <li>✅ Καμία εξωτερική βιβλιοθήκη· αυστηρή πολιτική ασφαλείας (CSP) που μπλοκάρει κάθε σύνδεση προς τρίτους.</li>
+      <li>✅ ${state.account ? 'Τα δεδομένα συγχρονίζονται <strong>κρυπτογραφημένα από άκρη σε άκρη</strong>: ο server δεν μπορεί να τα διαβάσει.' : 'Όλα τα δεδομένα μένουν <strong>μόνο σε αυτή τη συσκευή</strong>.'} Χωρίς analytics, διαφημίσεις ή tracking.</li>
+      <li>✅ Καμία εξωτερική βιβλιοθήκη· αυστηρή πολιτική ασφαλείας (CSP) που επιτρέπει συνδέσεις μόνο ${Sync.enabled() ? 'στον server συγχρονισμού' : 'στην ίδια την εφαρμογή'}.</li>
       <li>${encrypted ? '✅' : '⚠️'} Κρυπτογράφηση AES-256-GCM με κωδικό: <strong>${encrypted ? 'ενεργή' : 'ανενεργή'}</strong></li>
       <li>Μόνιμη αποθήκευση: <span id="persistStatus">…</span></li>
     </ul>
@@ -864,6 +898,11 @@ const actions = {
     if (tx) toast(`Βρέθηκε: ${money(tx.cents)}${tx.merchant ? ` · ${tx.merchant}` : ''}`);
   },
   'enable-enc': enableEncryption,
+  'account-login': () => openAccountSheet(false),
+  'account-create': () => openAccountSheet(true),
+  'account-sync': () => syncNow({ manual: true }),
+  'account-logout': logout,
+  'account-delete': deleteAccountFlow,
   'change-pass': changePasscode,
   'disable-enc': disableEncryption,
   'lock-now': lockNow,
@@ -1357,6 +1396,7 @@ async function setPasscode(pass, numeric) {
   await writeDataAndMeta(await encryptJSON(key, state.data), meta);
   state.key = key;
   state.meta = meta;
+  await saveAccount();
 }
 
 async function enableEncryption() {
@@ -1387,6 +1427,7 @@ async function disableEncryption() {
   await writeDataAndMeta(structuredClone(state.data), meta);
   state.key = null;
   state.meta = meta;
+  await saveAccount();
   render();
   toast('Η κρυπτογράφηση απενεργοποιήθηκε');
 }
@@ -1453,6 +1494,215 @@ async function importBackup(file) {
   await save();
   render();
   toast('Η επαναφορά ολοκληρώθηκε');
+}
+
+// ---------- account & sync ----------
+
+const ACCOUNT_KEY = 'account';
+
+async function loadAccount() {
+  state.account = null;
+  if (!Sync.enabled()) return;
+  const stored = await db.get(ACCOUNT_KEY);
+  if (!stored) return;
+  try {
+    // With a local passcode, the account keys are stored encrypted with it.
+    const secret = stored.sealed ? await decryptJSON(state.key, stored.sealed) : stored;
+    state.account = { username: stored.username, version: stored.version || 0, lastSync: stored.lastSync || 0,
+      encKey: secret.encKey, auth: secret.auth };
+  } catch {
+    state.account = null;
+  }
+}
+
+async function saveAccount() {
+  const a = state.account;
+  if (!a) {
+    await db.del(ACCOUNT_KEY);
+    return;
+  }
+  const secret = { encKey: a.encKey, auth: a.auth };
+  const meta = { username: a.username, version: a.version, lastSync: a.lastSync };
+  await db.set(ACCOUNT_KEY, state.key ? { ...meta, sealed: await encryptJSON(state.key, secret) } : { ...meta, ...secret });
+}
+
+let syncTimer = null;
+function scheduleSync() {
+  if (!state.account) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow(), 1500);
+}
+
+let syncRunning = null;
+let syncAgain = false;
+
+function syncNow({ manual = false } = {}) {
+  if (!state.account || !state.data) return Promise.resolve();
+  if (syncRunning) {
+    syncAgain = true;
+    return syncRunning;
+  }
+  state.syncState = { busy: true, error: null };
+  refreshAccountStatus();
+  syncRunning = (async () => {
+    do {
+      syncAgain = false;
+      await syncOnce();
+    } while (syncAgain && state.account);
+    state.syncState = { busy: false, error: null };
+    if (manual) toast('Συγχρονίστηκε ✅');
+  })().catch((err) => {
+    console.warn('sync failed', err);
+    state.syncState = { busy: false, error: err.code || 'error' };
+    if (manual) toast(syncErrorText(err.code));
+  }).finally(() => {
+    syncRunning = null;
+    refreshAccountStatus();
+  });
+  return syncRunning;
+}
+
+async function syncOnce() {
+  await saveChain;
+  const startedAt = state.changes;
+  const account = state.account;
+  const local = structuredClone(state.data);
+  const { result, version } = await Sync.syncRound(account, (remote) => {
+    if (!remote) return { result: local, changed: true };
+    const remoteClean = sanitize(remote);
+    const merged = sanitize(L.mergeData(local, remoteClean));
+    return { result: merged, changed: L.canon(merged) !== L.canon(remoteClean) };
+  });
+  if (state.account !== account || !state.data) return;
+  if (state.changes !== startedAt) {
+    syncAgain = true; // edited while syncing: merge again with the new local data
+  } else if (L.canon(result) !== L.canon(state.data)) {
+    state.data = result;
+    moneyFmt = null;
+    await save({ stamp: false });
+    if (!$('#sheet').open) render();
+  }
+  account.version = version;
+  account.lastSync = Date.now();
+  await saveAccount();
+}
+
+function syncErrorText(code) {
+  return {
+    offline: 'Χωρίς σύνδεση — θα συγχρονιστεί αργότερα',
+    unauthorized: 'Ο λογαριασμός δεν δέχτηκε τα στοιχεία. Συνδέσου ξανά.',
+    locked: 'Πολλές αποτυχημένες προσπάθειες — δοκίμασε σε 15 λεπτά',
+    decrypt: 'Τα δεδομένα του λογαριασμού δεν ανοίγουν με αυτόν τον κωδικό. Μήπως άλλαξε σε άλλη συσκευή;',
+    conflict: 'Ταυτόχρονες αλλαγές — δοκίμασε ξανά',
+  }[code] || 'Ο συγχρονισμός απέτυχε';
+}
+
+function accountStatusText() {
+  const a = state.account;
+  if (state.syncState.busy) return 'Συγχρονισμός…';
+  if (state.syncState.error) return `⚠️ ${syncErrorText(state.syncState.error)}`;
+  if (!a?.lastSync) return 'Δεν έχει συγχρονιστεί ακόμα';
+  const mins = Math.round((Date.now() - a.lastSync) / 60000);
+  return `✅ Συγχρονίστηκε ${mins < 1 ? 'μόλις τώρα' : `πριν από ${mins} λεπτ${mins === 1 ? 'ό' : 'ά'}`}`;
+}
+
+function refreshAccountStatus() {
+  const el = $('#accountStatus');
+  if (el) el.textContent = accountStatusText();
+}
+
+function accountSection() {
+  if (!Sync.enabled()) return '';
+  const a = state.account;
+  return `<section class="card">
+    <h2 class="card-title">Λογαριασμός & συγχρονισμός</h2>
+    ${a ? `
+      <div class="setting-row"><span>Συνδεδεμένος ως</span><strong>${esc(a.username)}</strong></div>
+      <p class="small" id="accountStatus">${esc(accountStatusText())}</p>
+      <div class="btn-col">
+        <button class="btn" data-action="account-sync">Συγχρονισμός τώρα</button>
+        <button class="btn" data-action="account-logout">Αποσύνδεση από αυτή τη συσκευή</button>
+        <button class="btn danger-text" data-action="account-delete">Διαγραφή λογαριασμού από τον server</button>
+      </div>`
+    : `<p class="small">Συνδέσου για να έχεις τα ίδια δεδομένα στο iPhone και στο web. Κρυπτογραφούνται <strong>πριν φύγουν από τη συσκευή</strong> με τον κωδικό σου — ο server δεν μπορεί να τα διαβάσει.</p>
+      <div class="btn-col">
+        <button class="btn primary" data-action="account-create">Δημιουργία λογαριασμού</button>
+        <button class="btn" data-action="account-login">Σύνδεση</button>
+      </div>`}
+  </section>`;
+}
+
+function openAccountSheet(create) {
+  openSheet(`<form class="sheet-form small-sheet" novalidate>
+    <header class="sheet-head"><button type="button" class="link" data-close>Άκυρο</button>
+      <h2>${create ? 'Νέος λογαριασμός' : 'Σύνδεση'}</h2><button type="submit" class="link strong">${create ? 'Δημιουργία' : 'Σύνδεση'}</button></header>
+    <div class="sheet-body">
+      <label class="field"><span>Όνομα χρήστη</span><input name="user" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label class="field"><span>Κωδικός</span><input name="p1" type="password" autocomplete="${create ? 'new-password' : 'current-password'}" required></label>
+      ${create ? `<label class="field"><span>Επανάληψη κωδικού</span><input name="p2" type="password" autocomplete="new-password" required></label>
+        <p class="small">⚠️ <strong>Ο κωδικός δεν ανακτάται</strong> — ούτε εμείς δεν τον ξέρουμε. Αν τον ξεχάσεις, τα δεδομένα του λογαριασμού χάνονται (όσα είναι στις συσκευές σου μένουν). Διάλεξε μια μεγάλη φράση, π.χ. τέσσερις λέξεις.</p>` : ''}
+      <p class="muted small">Λατινικά πεζά, αριθμοί, . _ - (3–32 χαρακτήρες).</p>
+      <p class="error" id="accErr"></p>
+    </div></form>`, (d) => {
+    const f = d.querySelector('form');
+    const err = d.querySelector('#accErr');
+    const submit = d.querySelector('[type=submit]');
+    f.user.focus();
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = Sync.normUser(f.user.value);
+      const pass = f.p1.value;
+      if (!Sync.USER_RE.test(username)) { err.textContent = 'Μη έγκυρο όνομα χρήστη.'; return; }
+      if (create) {
+        if (pass.length < 10) { err.textContent = 'Ο κωδικός θέλει τουλάχιστον 10 χαρακτήρες.'; return; }
+        if (pass !== f.p2.value) { err.textContent = 'Οι κωδικοί δεν ταιριάζουν.'; return; }
+      } else if (!pass) return;
+      submit.disabled = true;
+      err.textContent = '';
+      submit.textContent = '…';
+      try {
+        const creds = await Sync.deriveAccountKeys(username, pass);
+        if (create) await Sync.register(creds);
+        await Sync.verify(creds);
+        state.account = { ...creds, version: 0, lastSync: 0 };
+        await saveAccount();
+        closeSheet();
+        render();
+        await syncNow();
+        toast(state.syncState.error ? syncErrorText(state.syncState.error) : 'Συνδέθηκες — τα δεδομένα συγχρονίστηκαν');
+      } catch (ex) {
+        const code = ex.code;
+        err.textContent = code === 'taken' ? 'Το όνομα χρήστη υπάρχει ήδη.'
+          : code === 'unauthorized' ? 'Λάθος όνομα χρήστη ή κωδικός.'
+            : code === 'rate_limited' ? 'Πάρα πολλές εγγραφές από αυτό το δίκτυο. Δοκίμασε αύριο.'
+              : syncErrorText(code);
+        submit.disabled = false;
+        submit.textContent = create ? 'Δημιουργία' : 'Σύνδεση';
+      }
+    });
+  });
+}
+
+async function logout() {
+  if (!confirm('Αποσύνδεση από αυτή τη συσκευή; Τα δεδομένα μένουν εδώ και στον λογαριασμό, αλλά δεν θα συγχρονίζονται πια.')) return;
+  await syncRunning;
+  state.account = null;
+  await saveAccount();
+  render();
+}
+
+async function deleteAccountFlow() {
+  if (!confirm('Θα διαγραφεί ο λογαριασμός και τα κρυπτογραφημένα δεδομένα του από τον server. Τα δεδομένα σε αυτή τη συσκευή μένουν. Συνέχεια;')) return;
+  try {
+    await Sync.deleteAccount(state.account);
+  } catch (ex) {
+    toast(syncErrorText(ex.code));
+    return;
+  }
+  state.account = null;
+  await saveAccount();
+  render();
+  toast('Ο λογαριασμός διαγράφηκε');
 }
 
 // ---------- updates (service worker) ----------

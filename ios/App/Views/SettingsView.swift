@@ -21,6 +21,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                AccountSection()
                 budgetSection
                 categoryBudgetSection
                 categoriesSection
@@ -66,7 +67,7 @@ struct SettingsView: View {
             .confirmationDialog("Διαγραφή όλων των δεδομένων;", isPresented: $confirmWipe, titleVisibility: .visible) {
                 Button("Οριστική διαγραφή", role: .destructive) { store.reset() }
             } message: {
-                Text("Αγορές, κατηγορίες και ρυθμίσεις θα διαγραφούν από αυτό το iPhone. Δεν αναιρείται.")
+                Text("Αγορές, κατηγορίες και ρυθμίσεις θα διαγραφούν από αυτό το iPhone. Αν είσαι συνδεδεμένος, θα αποσυνδεθείς πρώτα — τα δεδομένα του λογαριασμού μένουν. Δεν αναιρείται.")
             }
             .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
                 Button("OK", role: .cancel) {}
@@ -206,8 +207,9 @@ struct SettingsView: View {
             Text("Ασφάλεια & ιδιωτικότητα")
         } footer: {
             Text("""
-            • Τα δεδομένα αποθηκεύονται μόνο σε αυτό το iPhone, κρυπτογραφημένα από το iOS όσο η συσκευή είναι κλειδωμένη.
-            • Η εφαρμογή δεν συνδέεται ποτέ στο internet: δεν έχει server, λογαριασμό, διαφημίσεις ή analytics.
+            • Τα δεδομένα αποθηκεύονται στο iPhone, κρυπτογραφημένα από το iOS όσο η συσκευή είναι κλειδωμένη.
+            • Με λογαριασμό, συγχρονίζονται κρυπτογραφημένα από άκρη σε άκρη: ο server δεν μπορεί να τα διαβάσει. Χωρίς λογαριασμό, δεν φεύγουν ποτέ από το iPhone.
+            • Χωρίς διαφημίσεις, analytics ή tracking.
             • Με το κλείδωμα ενεργό, τα ποσά κρύβονται και στην εναλλαγή εφαρμογών.
             • Τα δεδομένα περιλαμβάνονται στο κρυπτογραφημένο backup του iPhone, για να μη χαθούν αν αλλάξεις κινητό.
             """)
@@ -394,5 +396,154 @@ private struct PasswordSheet: View {
             }
         }
         .presentationDetents([.medium])
+    }
+}
+
+// MARK: - account
+
+private struct AccountSection: View {
+    @State private var sync = SyncManager.shared
+    @State private var sheet: Bool?
+    @State private var confirmSignOut = false
+    @State private var confirmDelete = false
+    @State private var message: String?
+
+    var body: some View {
+        if sync.enabled {
+            Section {
+                if let user = sync.username {
+                    HStack {
+                        Text("Συνδεδεμένος ως")
+                        Spacer()
+                        Text(user).fontWeight(.semibold)
+                    }
+                    HStack {
+                        if sync.busy { ProgressView().controlSize(.small) }
+                        Text(status).font(.footnote).foregroundStyle(sync.error == nil ? Color.secondary : Color.orange)
+                    }
+                    Button("Συγχρονισμός τώρα") { Task { await sync.syncNow() } }
+                        .disabled(sync.busy)
+                    Button("Αποσύνδεση από αυτό το iPhone") { confirmSignOut = true }
+                    Button("Διαγραφή λογαριασμού από τον server", role: .destructive) { confirmDelete = true }
+                } else {
+                    Text("Συνδέσου για να έχεις τα ίδια δεδομένα στο iPhone και στο web. Κρυπτογραφούνται **πριν φύγουν από τη συσκευή** με τον κωδικό σου — ο server δεν μπορεί να τα διαβάσει.")
+                        .font(.subheadline)
+                    Button("Δημιουργία λογαριασμού") { sheet = true }
+                    Button("Σύνδεση") { sheet = false }
+                }
+            } header: {
+                Text("Λογαριασμός & συγχρονισμός")
+            }
+            .sheet(item: Binding(get: { sheet.map { AccountSheetMode(create: $0) } }, set: { sheet = $0?.create })) { mode in
+                AccountSheet(create: mode.create)
+            }
+            .confirmationDialog("Αποσύνδεση;", isPresented: $confirmSignOut, titleVisibility: .visible) {
+                Button("Αποσύνδεση", role: .destructive) { sync.signOut() }
+            } message: {
+                Text("Τα δεδομένα μένουν σε αυτό το iPhone και στον λογαριασμό, αλλά δεν θα συγχρονίζονται πια.")
+            }
+            .confirmationDialog("Διαγραφή λογαριασμού;", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Διαγραφή από τον server", role: .destructive) {
+                    Task {
+                        do { try await sync.deleteAccount(); message = "Ο λογαριασμός διαγράφηκε." }
+                        catch let e as SyncError { message = SyncManager.message(e) }
+                        catch { message = "Η διαγραφή απέτυχε." }
+                    }
+                }
+            } message: {
+                Text("Θα διαγραφούν ο λογαριασμός και τα κρυπτογραφημένα δεδομένα του από τον server. Τα δεδομένα σε αυτό το iPhone μένουν.")
+            }
+            .alert(message ?? "", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+                Button("OK", role: .cancel) {}
+            }
+        }
+    }
+
+    private var status: String {
+        if sync.busy { return "Συγχρονισμός…" }
+        if let e = sync.error { return "⚠️ " + SyncManager.message(e) }
+        guard let last = sync.lastSync else { return "Δεν έχει συγχρονιστεί ακόμα" }
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "el_GR")
+        return "✅ Συγχρονίστηκε " + f.localizedString(for: last, relativeTo: Date())
+    }
+}
+
+private struct AccountSheetMode: Identifiable {
+    let create: Bool
+    var id: Bool { create }
+}
+
+private struct AccountSheet: View {
+    let create: Bool
+    @Environment(\.dismiss) private var dismiss
+    @State private var username = ""
+    @State private var p1 = ""
+    @State private var p2 = ""
+    @State private var error = ""
+    @State private var working = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Όνομα χρήστη", text: $username)
+                        .textContentType(.username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    SecureField("Κωδικός", text: $p1).textContentType(create ? .newPassword : .password)
+                    if create { SecureField("Επανάληψη κωδικού", text: $p2).textContentType(.newPassword) }
+                } footer: {
+                    Text("Όνομα: λατινικά πεζά, αριθμοί, . _ - (3–32 χαρακτήρες).")
+                }
+                if create {
+                    Section {
+                        Label {
+                            Text("**Ο κωδικός δεν ανακτάται** — ούτε εμείς δεν τον ξέρουμε. Αν τον ξεχάσεις, τα δεδομένα του λογαριασμού χάνονται (όσα είναι στις συσκευές σου μένουν). Διάλεξε μια μεγάλη φράση, π.χ. τέσσερις λέξεις.")
+                                .font(.footnote)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        }
+                    }
+                }
+                if !error.isEmpty { Text(error).foregroundStyle(.red) }
+            }
+            .disabled(working)
+            .navigationTitle(create ? "Νέος λογαριασμός" : "Σύνδεση")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Άκυρο") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    if working {
+                        ProgressView()
+                    } else {
+                        Button(create ? "Δημιουργία" : "Σύνδεση") { submit() }.fontWeight(.semibold)
+                    }
+                }
+            }
+        }
+        .interactiveDismissDisabled(working)
+    }
+
+    private func submit() {
+        let user = AccountKeys.normalize(username)
+        guard AccountKeys.isValid(username: user) else { error = "Μη έγκυρο όνομα χρήστη."; return }
+        if create {
+            guard p1.count >= 10 else { error = "Ο κωδικός θέλει τουλάχιστον 10 χαρακτήρες."; return }
+            guard p1 == p2 else { error = "Οι κωδικοί δεν ταιριάζουν."; return }
+        } else if p1.isEmpty { return }
+        error = ""
+        working = true
+        Task {
+            do {
+                try await SyncManager.shared.signIn(username: user, password: p1, create: create)
+                dismiss()
+            } catch let e as SyncError {
+                error = SyncManager.message(e)
+            } catch {
+                self.error = "Κάτι πήγε στραβά."
+            }
+            working = false
+        }
     }
 }

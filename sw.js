@@ -11,6 +11,8 @@ const ASSETS = [
   'js/logic.js',
   'js/db.js',
   'js/crypto.js',
+  'js/sync.js',
+  'js/config.js',
   'js/version.js',
   'manifest.webmanifest',
   'icons/icon.svg',

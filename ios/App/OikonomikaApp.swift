@@ -66,6 +66,8 @@ struct RootView: View {
             #endif
             lock.lockOnLaunch(enabled: store.data.settings.lockEnabled)
             Notifier.shared.dataChanged(store)
+            SyncManager.shared.loadAccount()
+            await SyncManager.shared.syncNow()
         }
         .onChange(of: phase) { _, newPhase in
             switch newPhase {
@@ -76,6 +78,8 @@ struct RootView: View {
                 store.mergeInbox()
                 lock.becameActive(settings: store.data.settings)
                 Notifier.shared.dataChanged(store)
+                SyncManager.shared.loadAccount()
+                Task { await SyncManager.shared.syncNow() }
             default:
                 break
             }

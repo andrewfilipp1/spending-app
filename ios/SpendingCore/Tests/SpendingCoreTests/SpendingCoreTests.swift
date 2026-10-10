@@ -154,3 +154,51 @@ private func Cat0() -> SpendingCore.Category { SpendingCore.Category(id: "fuel",
     again.categories.removeAll { $0.id == "fuel" }
     #expect(!again.sanitized().categories.contains { $0.id == "fuel" })
 }
+
+// Same password → same keys as the web app (js/sync.js), so both can open the account.
+@Test func accountKeysMatchWebApp() throws {
+    let k = try AccountKeys.derive(username: "andreas", password: "σωστό άλογο μπαταρία")
+    #expect(k.encKey.base64EncodedString() == "UL+KcMHNj5C/nqEffBNWUL25JKbgAkoNvx9hc+G8X5E=")
+    #expect(k.auth.base64EncodedString() == "zMlYs3zQSVc6FOqXnJGu+92eRk3F2vj9LPl0yhzIzhE=")
+}
+
+private func pur(_ id: String, _ cents: Int, updated: Double = 0) -> Purchase {
+    Purchase(id: id, date: "2026-10-10", createdAt: 1, updatedAt: updated, items: [Item(id: "i\(id)", name: id, cents: cents, cat: "other")])
+}
+
+@Test func stampChangesMarksEditsAdditionsDeletions() {
+    var prev = AppData()
+    prev.purchases = [pur("a", 100), pur("b", 200)]
+    var next = prev
+    next.purchases[0].items[0].cents = 150
+    next.purchases.remove(at: 1)
+    next.purchases.append(pur("c", 300))
+    next.settings.budgets.month = 2000
+    SyncMerge.stampChanges(prev: prev, next: &next, now: 50)
+    #expect(next.purchases.map { "\($0.id):\(Int($0.updatedAt))" } == ["a:50", "c:50"])
+    #expect(next.deleted == ["b": 50])
+    #expect(next.settingsUpdatedAt == 50 && next.categoriesUpdatedAt == 0)
+}
+
+@Test func mergeKeepsBothSidesAndRespectsDeletions() {
+    var remote = AppData()
+    remote.purchases = [pur("a", 100, updated: 10), pur("b", 200), pur("d", 1, updated: 40)]
+    remote.deleted = ["x": 5]
+    remote.settingsUpdatedAt = 30
+    remote.settings.budgets.month = 3000
+    var local = AppData()
+    local.purchases = [pur("a", 999, updated: 20), pur("c", 300, updated: 20), pur("d", 1, updated: 40)]
+    local.deleted = ["b": 15, "d": 30]
+    local.settingsUpdatedAt = 20
+    let m = SyncMerge.merge(local: local, remote: remote, now: 100)
+    #expect(m.purchases.map { "\($0.id):\($0.items[0].cents)" }.sorted() == ["a:999", "c:300", "d:1"])
+    #expect(m.settings.budgets.month == 3000)
+    #expect(m.deleted == ["x": 5, "b": 15, "d": 30])
+}
+
+@Test func freshDeviceAdoptsAccountData() {
+    var remote = AppData()
+    remote.settings.budgets.month = 5000
+    let m = SyncMerge.merge(local: AppData(), remote: remote, now: 1)
+    #expect(m.settings.budgets.month == 5000)
+}

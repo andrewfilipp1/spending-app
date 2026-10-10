@@ -1,0 +1,13 @@
+{
+  "name": "spending-sync",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "db:local": "wrangler d1 execute spending-sync --local --file schema.sql",
+    "db:remote": "wrangler d1 execute spending-sync --remote --file schema.sql",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": { "wrangler": "4.149.0" }
+}

@@ -78,3 +78,40 @@ test('category budgets use their own period', () => {
   const allocs = [{ date: '2026-10-05', cents: 3000, cat: 'fuel' }, { date: '2026-10-01', cents: 9000, cat: 'fuel' }];
   assert.deepEqual(L.categoryBudgets(cats, allocs, '2026-10-10', 1).map((s) => [s.cat.id, s.start, s.spent]), [['fuel', '2026-10-05', 3000]]);
 });
+
+const base = () => ({ schema: 2, settings: { budgets: { month: 1000 } }, categories: [{ id: 'other' }], purchases: [] });
+const pur = (id, cents, extra = {}) => ({ id, date: '2026-10-10', createdAt: 1, items: [{ id: `i${id}`, name: id, cents, cat: 'other', days: 1 }], ...extra });
+
+test('stampChanges marks edits, additions and deletions', () => {
+  const prev = { ...base(), purchases: [pur('a', 100), pur('b', 200)] };
+  const next = structuredClone(prev);
+  next.purchases[0].items[0].cents = 150; // edit a
+  next.purchases.splice(1, 1); // delete b
+  next.purchases.push(pur('c', 300)); // add c
+  next.settings.budgets.month = 2000;
+  L.stampChanges(prev, next, 50);
+  assert.deepEqual(next.purchases.map((p) => [p.id, p.updatedAt]), [['a', 50], ['c', 50]]);
+  assert.deepEqual(next.deleted, { b: 50 });
+  assert.equal(next.settingsUpdatedAt, 50);
+  assert.equal(next.categoriesUpdatedAt, undefined);
+});
+
+test('mergeData keeps both sides changes and respects deletions', () => {
+  const remote = { ...base(), purchases: [pur('a', 100, { updatedAt: 10 }), pur('b', 200), pur('d', 1, { updatedAt: 40 })],
+    deleted: { x: 5 }, settingsUpdatedAt: 30, settings: { budgets: { month: 3000 } } };
+  const local = { ...base(), purchases: [pur('a', 999, { updatedAt: 20 }), pur('c', 300, { updatedAt: 20 }), pur('d', 1, { updatedAt: 40 })],
+    deleted: { b: 15, d: 30 }, settingsUpdatedAt: 20 };
+  const m = L.mergeData(local, remote, 100);
+  assert.deepEqual(m.purchases.map((p) => [p.id, p.items[0].cents]).sort(), [['a', 999], ['c', 300], ['d', 1]]);
+  assert.equal(m.settings.budgets.month, 3000); // remote settings are newer
+  assert.deepEqual(m.deleted, { x: 5, b: 15, d: 30 }); // d was edited after its deletion → kept
+});
+
+test('mergeData: a fresh device adopts the account data on ties', () => {
+  const remote = { ...base(), settings: { budgets: { month: 5000 } }, categories: [{ id: 'fuel' }, { id: 'other' }] };
+  const fresh = base();
+  const m = L.mergeData(fresh, remote, 1);
+  assert.equal(m.settings.budgets.month, 5000);
+  assert.deepEqual(m.categories.map((c) => c.id), ['fuel', 'other']);
+  assert.equal(L.canon({ a: 1, b: null, c: [1, { z: 1, y: 2 }] }), '{"a":1,"c":[1,{"y":2,"z":1}]}');
+});

@@ -198,3 +198,69 @@ export function categoryBudgets(categories, allocs, today, weekStart = 1) {
     return { cat: c, start, end, budget: c.budget, spent };
   });
 }
+
+// ---------- sync: change stamps and merging ----------
+
+// Stable JSON (sorted keys, undefined ≈ null) for comparing data from different devices.
+export function canon(v) {
+  if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v).sort().filter((k) => v[k] !== undefined && v[k] !== null)
+      .map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
+const stampOf = (p) => Math.max(p.updatedAt || 0, p.createdAt || 0);
+
+// Marks what changed between the last saved data and the new data, so another device can tell
+// which copy is newer: settings/categories get a timestamp, edited purchases get updatedAt and
+// removed purchases are remembered in `deleted`. Mutates and returns `next`.
+export function stampChanges(prev, next, now = Date.now()) {
+  if (!prev) return next;
+  if (canon(prev.settings) !== canon(next.settings)) next.settingsUpdatedAt = now;
+  if (canon(prev.categories) !== canon(next.categories)) next.categoriesUpdatedAt = now;
+  const before = new Map(prev.purchases.map((p) => [p.id, p]));
+  const body = (p) => canon({ ...p, updatedAt: 0 });
+  for (const p of next.purchases) {
+    const q = before.get(p.id);
+    if (!q || body(q) !== body(p)) p.updatedAt = now;
+    before.delete(p.id);
+  }
+  next.deleted = { ...(next.deleted || {}) };
+  for (const id of before.keys()) next.deleted[id] = now;
+  return next;
+}
+
+// Combines this device's data with the account's data. Purchases merge one by one (newest edit
+// wins, deletions win over older edits); settings and categories take the most recently changed
+// copy. Ties go to the server copy, so a new device adopts the account's data.
+export function mergeData(local, remote, now = Date.now()) {
+  const deleted = { ...(remote.deleted || {}) };
+  for (const [id, t] of Object.entries(local.deleted || {})) deleted[id] = Math.max(deleted[id] || 0, t);
+  const byId = new Map(remote.purchases.map((p) => [p.id, p]));
+  for (const p of local.purchases) {
+    const r = byId.get(p.id);
+    if (!r || stampOf(p) > stampOf(r)) byId.set(p.id, p);
+  }
+  const purchases = [...byId.values()].filter((p) => !((deleted[p.id] || 0) >= stampOf(p)));
+
+  const localCats = (local.categoriesUpdatedAt || 0) > (remote.categoriesUpdatedAt || 0);
+  const categories = [...(localCats ? local.categories : remote.categories)];
+  // keep categories from the other side that merged purchases still use
+  const used = new Set(purchases.flatMap((p) => p.items.map((i) => i.cat)));
+  for (const c of localCats ? remote.categories : local.categories) {
+    if (used.has(c.id) && !categories.some((x) => x.id === c.id)) categories.splice(Math.max(0, categories.length - 1), 0, c);
+  }
+
+  const yearAgo = now - 365 * 86400000;
+  return {
+    schema: Math.max(local.schema || 1, remote.schema || 1),
+    settings: (local.settingsUpdatedAt || 0) > (remote.settingsUpdatedAt || 0) ? local.settings : remote.settings,
+    settingsUpdatedAt: Math.max(local.settingsUpdatedAt || 0, remote.settingsUpdatedAt || 0),
+    categories,
+    categoriesUpdatedAt: Math.max(local.categoriesUpdatedAt || 0, remote.categoriesUpdatedAt || 0),
+    purchases,
+    deleted: Object.fromEntries(Object.entries(deleted).filter(([, t]) => t > yearAgo)),
+  };
+}
