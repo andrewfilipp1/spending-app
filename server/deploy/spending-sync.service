@@ -1,0 +1,41 @@
+[Unit]
+Description=Τα Οικονομικά μου — sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env node /opt/spending-sync/src/node.js
+WorkingDirectory=/opt/spending-sync
+Environment=PORT=8787
+Environment=DB_PATH=/var/lib/spending-sync/sync.db
+Environment=TRUST_PROXY=1
+Environment=ALLOWED_ORIGINS=https://andrewfilipp1.github.io
+Restart=on-failure
+RestartSec=3
+
+# Runs as a throwaway user that can only write its own data directory.
+DynamicUser=yes
+StateDirectory=spending-sync
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

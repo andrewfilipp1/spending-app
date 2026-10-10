@@ -3,11 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8787",
+    "dev": "ALLOWED_ORIGINS=http://localhost:8080,https://andrewfilipp1.github.io DB_PATH=.data/dev.db node src/node.js",
     "db:local": "wrangler d1 execute spending-sync --local --file schema.sql",
     "db:remote": "wrangler d1 execute spending-sync --remote --file schema.sql",
     "deploy": "wrangler deploy",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "start": "node src/node.js",
+    "dev:worker": "wrangler dev --port 8787"
   },
-  "devDependencies": { "wrangler": "4.149.0" }
+  "devDependencies": {
+    "wrangler": "4.149.0"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
 }

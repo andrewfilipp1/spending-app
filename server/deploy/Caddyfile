@@ -1,0 +1,15 @@
+# HTTPS with an automatic Let's Encrypt certificate. Replace sync.example.com with your domain.
+sync.example.com {
+	encode gzip
+	request_body {
+		max_size 6MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8787 {
+		header_up X-Real-IP {remote_host}
+	}
+}
