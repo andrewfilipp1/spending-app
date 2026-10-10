@@ -1,7 +1,7 @@
 // Service worker: makes the app work offline and delivers updates.
 // A new VERSION creates a new cache; the page shows "update available" and the
 // user decides when to switch, so nothing reloads in the middle of typing.
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const CACHE = `spending-app-${VERSION}`;
 const ASSETS = [
   './',
@@ -23,7 +23,12 @@ const ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' })))),
+    // `?v=` bypasses CDN caches, so an update never mixes files from two versions.
+    caches.open(CACHE).then((cache) => Promise.all(ASSETS.map(async (url) => {
+      const res = await fetch(`${url}?v=${VERSION}`, { cache: 'reload' });
+      if (!res.ok) throw new Error(`${url}: ${res.status}`);
+      await cache.put(url, res);
+    }))),
   );
 });
 
