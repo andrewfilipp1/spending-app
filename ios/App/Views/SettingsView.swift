@@ -22,6 +22,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 budgetSection
+                categoryBudgetSection
                 categoriesSection
                 notificationsSection
                 securitySection
@@ -95,6 +96,33 @@ struct SettingsView: View {
         }
     }
 
+    private var categoryBudgetSection: some View {
+        Section {
+            ForEach(store.data.categories) { c in
+                NavigationLink { CategoryBudgetView(categoryID: c.id) } label: {
+                    HStack {
+                        CategoryIcon(category: c, size: 30)
+                        Text(c.name).lineLimit(1)
+                        Spacer()
+                        if let b = c.budget {
+                            Text("\(Fmt.money(b))/\(c.budgetPeriod == .week ? "εβδ." : "μήνα")")
+                                .font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+                        } else {
+                            Text("—").foregroundStyle(.tertiary)
+                        }
+                        if c.budgetChanges > 0 {
+                            BudgetChangesBadge(count: c.budgetChanges)
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Budget ανά κατηγορία")
+        } footer: {
+            Text("Όρισε ξεχωριστό όριο ανά εβδομάδα ή μήνα για κάθε κατηγορία, π.χ. Καύσιμα 60 €/εβδομάδα. Το ✎ δείχνει πόσες φορές το άλλαξες.")
+        }
+    }
+
     private var categoriesSection: some View {
         Section("Κατηγορίες") {
             ForEach(store.data.categories) { c in
@@ -102,8 +130,6 @@ struct SettingsView: View {
                     HStack {
                         CategoryIcon(category: c, size: 30)
                         Text(c.name)
-                        Spacer()
-                        if let b = c.budget { Text("\(Fmt.money(b))/μήνα").font(.caption).foregroundStyle(.secondary) }
                     }
                 }
             }

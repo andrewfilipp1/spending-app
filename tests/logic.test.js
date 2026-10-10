@@ -60,3 +60,21 @@ test('parseTransaction reads Shortcuts clipboard text', () => {
   assert.equal(L.parseTransaction('hello'), null);
   assert.equal(L.parseTransaction(''), null);
 });
+
+test('category budget history counts changes, not the first setting', () => {
+  const c = { id: 'fuel' };
+  assert.equal(L.setCategoryBudget(c, 20000, 'month', 1), true);
+  assert.equal(L.budgetChanges(c), 0);
+  assert.equal(L.setCategoryBudget(c, 20000, 'month', 2), false);
+  L.setCategoryBudget(c, 25000, 'month', 3);
+  L.setCategoryBudget(c, 6000, 'week', 4);
+  L.setCategoryBudget(c, null, 'week', 5);
+  assert.equal(L.budgetChanges(c), 3);
+  assert.deepEqual(c.budgetHistory[2], { at: 4, from: 25000, fromPeriod: 'month', to: 6000, period: 'week' });
+});
+
+test('category budgets use their own period', () => {
+  const cats = [{ id: 'fuel', budget: 5000, budgetPeriod: 'week' }, { id: 'groceries', budget: null }];
+  const allocs = [{ date: '2026-10-05', cents: 3000, cat: 'fuel' }, { date: '2026-10-01', cents: 9000, cat: 'fuel' }];
+  assert.deepEqual(L.categoryBudgets(cats, allocs, '2026-10-10', 1).map((s) => [s.cat.id, s.start, s.spent]), [['fuel', '2026-10-05', 3000]]);
+});

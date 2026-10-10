@@ -71,19 +71,67 @@ public struct Settings: Codable, Equatable, Sendable {
     }
 }
 
+/// One entry per budget change of a category (kept so the app can show how often it was changed).
+public struct BudgetChange: Codable, Hashable, Sendable {
+    public var at: Double // ms since 1970
+    public var from: Int?
+    public var fromPeriod: PeriodKind?
+    public var to: Int?
+    public var period: PeriodKind
+
+    public init(at: Double, from: Int?, fromPeriod: PeriodKind?, to: Int?, period: PeriodKind) {
+        self.at = at
+        self.from = from
+        self.fromPeriod = fromPeriod
+        self.to = to
+        self.period = period
+    }
+}
+
 public struct Category: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
     public var emoji: String
     public var color: String // #rrggbb
-    public var budget: Int? // monthly, cents
+    public var budget: Int? // cents per budgetPeriod
+    public var budgetPeriod: PeriodKind // .week or .month
+    public var budgetHistory: [BudgetChange]
 
-    public init(id: String = UUID().uuidString, name: String, emoji: String, color: String, budget: Int? = nil) {
+    public init(id: String = UUID().uuidString, name: String, emoji: String, color: String, budget: Int? = nil,
+                budgetPeriod: PeriodKind = .month, budgetHistory: [BudgetChange] = []) {
         self.id = id
         self.name = name
         self.emoji = emoji
         self.color = color
         self.budget = budget
+        self.budgetPeriod = budgetPeriod
+        self.budgetHistory = budgetHistory
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        emoji = (try? c.decodeIfPresent(String.self, forKey: .emoji)) ?? ""
+        color = (try? c.decodeIfPresent(String.self, forKey: .color)) ?? ""
+        budget = (try? c.decodeIfPresent(Int.self, forKey: .budget)) ?? nil
+        budgetPeriod = (try? c.decodeIfPresent(PeriodKind.self, forKey: .budgetPeriod)) ?? .month
+        budgetHistory = (try? c.decodeIfPresent([BudgetChange].self, forKey: .budgetHistory)) ?? []
+    }
+
+    /// How many times an existing budget was changed or removed (setting it the first time is not a change).
+    public var budgetChanges: Int { budgetHistory.filter { $0.from != nil }.count }
+
+    /// Records the change in the history. Returns false if nothing changed.
+    @discardableResult
+    public mutating func setBudget(_ cents: Int?, period: PeriodKind, at: Double = Date().timeIntervalSince1970 * 1000) -> Bool {
+        let period: PeriodKind = period == .week ? .week : .month
+        guard cents != budget || (cents != nil && period != budgetPeriod) else { return false }
+        budgetHistory.append(BudgetChange(at: at, from: budget, fromPeriod: budget == nil ? nil : budgetPeriod, to: cents, period: period))
+        budgetHistory = Array(budgetHistory.suffix(200))
+        budget = cents
+        budgetPeriod = period
+        return true
     }
 }
 
@@ -166,7 +214,7 @@ private struct LenientCategory: Decodable {
 }
 
 public struct AppData: Codable, Equatable, Sendable {
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
 
     public var schema: Int
     public var settings: Settings
@@ -193,6 +241,7 @@ public struct AppData: Codable, Equatable, Sendable {
         Category(id: "food", name: "Φαγητό έξω", emoji: "🍔", color: "#ea580c"),
         Category(id: "coffee", name: "Καφές", emoji: "☕", color: "#a16207"),
         Category(id: "transport", name: "Μετακινήσεις", emoji: "🚗", color: "#2563eb"),
+        Category(id: "fuel", name: "Καύσιμα", emoji: "⛽", color: "#0891b2"),
         Category(id: "home", name: "Σπίτι & λογαριασμοί", emoji: "🏠", color: "#7c3aed"),
         Category(id: "health", name: "Υγεία", emoji: "💊", color: "#dc2626"),
         Category(id: "fun", name: "Διασκέδαση", emoji: "🎉", color: "#db2777"),
@@ -226,10 +275,24 @@ public struct AppData: Codable, Equatable, Sendable {
             c.name = String(c.name.prefix(60)).isEmpty ? "Κατηγορία" : String(c.name.prefix(60))
             c.emoji = c.emoji.isEmpty ? "•" : String(c.emoji.prefix(1))
             c.color = c.color.range(of: #"^#[0-9a-fA-F]{6}$"#, options: .regularExpression) != nil ? c.color : "#64748b"
-            if let b = c.budget, b < 0 { c.budget = nil }
+            if let b = c.budget, b < 0 || b >= 100_000_000_000 { c.budget = nil }
+            if c.budgetPeriod != .week { c.budgetPeriod = .month }
+            c.budgetHistory = c.budgetHistory.suffix(200).map { h in
+                var h = h
+                if let f = h.from, f < 0 { h.from = nil }
+                if let t = h.to, t < 0 { h.to = nil }
+                if h.period != .week { h.period = .month }
+                if let fp = h.fromPeriod, fp != .week { h.fromPeriod = .month }
+                return h
+            }
             return c
         }
         if d.categories.isEmpty { d.categories = AppData.defaultCategories }
+        // Schema 2 added the "Καύσιμα" category.
+        if schema < 2, !d.categories.contains(where: { $0.id == "fuel" }), let fuel = AppData.defaultCategories.first(where: { $0.id == "fuel" }) {
+            let at = (d.categories.firstIndex { $0.id == "transport" }).map { $0 + 1 } ?? max(0, d.categories.count - 1)
+            d.categories.insert(fuel, at: at)
+        }
         if !d.categories.contains(where: { $0.id == "other" }) { d.categories.append(AppData.defaultCategories.last!) }
         let ids = Set(d.categories.map(\.id))
 

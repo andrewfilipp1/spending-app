@@ -60,19 +60,19 @@ import Testing
     var data = AppData()
     data.settings.budgets.month = 10000
     data.purchases = [Purchase(date: "2026-10-05", items: [Item(name: "x", cents: 8500, cat: "other")])]
-    let money = { (c: Int) in "\(c)" }
-    let a = Alerts.pending(data, today: "2026-10-10", money: money)
+    let a = Alerts.pending(data, today: "2026-10-10")
     #expect(a.map(\.key) == ["month-2026-10-01-80"])
     data.settings.alertsSent = a.map(\.key)
-    #expect(Alerts.pending(data, today: "2026-10-10", money: money).isEmpty)
+    #expect(Alerts.pending(data, today: "2026-10-10").isEmpty)
     data.purchases.append(Purchase(date: "2026-10-06", items: [Item(name: "y", cents: 2000, cat: "other")]))
-    #expect(Alerts.pending(data, today: "2026-10-10", money: money).map(\.key) == ["month-2026-10-01-100"])
+    #expect(Alerts.pending(data, today: "2026-10-10").map(\.key) == ["month-2026-10-01-100"])
 }
 
 @Test func merchantHints() {
     let data = AppData()
     #expect(MerchantHints.category(for: "LIDL HELLAS", in: data) == "groceries")
-    #expect(MerchantHints.category(for: "Shell Κηφισίας", in: data) == "transport")
+    #expect(MerchantHints.category(for: "Shell Κηφισίας", in: data) == "fuel")
+    #expect(MerchantHints.category(for: "Uber", in: data) == "transport")
     #expect(MerchantHints.category(for: "Άγνωστο", in: data) == "other")
 }
 
@@ -110,4 +110,45 @@ import Testing
     #expect(data.settings.budgets.month == 40000)
     #expect(data.purchases.first?.items.first?.name == "Κοτόπουλο")
     #expect(data.purchases.first?.items.first?.days == 3)
+}
+
+@Test func categoryBudgetHistoryCountsChanges() {
+    var c = Cat0()
+    #expect(c.setBudget(20000, period: .month, at: 1))
+    #expect(c.budgetChanges == 0) // first time is not a change
+    #expect(!c.setBudget(20000, period: .month, at: 2)) // same value: nothing recorded
+    #expect(c.setBudget(25000, period: .month, at: 3))
+    #expect(c.setBudget(6000, period: .week, at: 4))
+    #expect(c.setBudget(nil, period: .week, at: 5))
+    #expect(c.budgetChanges == 3)
+    #expect(c.budgetHistory.count == 4)
+    #expect(c.budgetHistory[2].fromPeriod == .month && c.budgetHistory[2].period == .week)
+}
+
+private func Cat0() -> SpendingCore.Category { SpendingCore.Category(id: "fuel", name: "Καύσιμα", emoji: "⛽", color: "#0891b2") }
+
+@Test func categoryBudgetUsesItsOwnPeriod() {
+    var data = AppData()
+    let i = data.categories.firstIndex { $0.id == "fuel" }!
+    data.categories[i].setBudget(5000, period: .week)
+    data.purchases = [
+        Purchase(date: "2026-10-05", items: [Item(name: "Βενζίνη", cents: 3000, cat: "fuel")]), // Monday, this week
+        Purchase(date: "2026-10-01", items: [Item(name: "Βενζίνη", cents: 9000, cat: "fuel")]), // previous week
+    ]
+    let st = Logic.categoryBudgets(data, allocs: Logic.allocations(data.purchases), today: "2026-10-10")
+    #expect(st.count == 1 && st[0].spent == 3000 && st[0].period == Period(start: "2026-10-05", end: "2026-10-11"))
+    data.purchases.append(Purchase(date: "2026-10-09", items: [Item(name: "Βενζίνη", cents: 1500, cat: "fuel")]))
+    let keys = Alerts.pending(data, today: "2026-10-10").map(\.key)
+    #expect(keys == ["cat-fuel-2026-10-05-80"])
+}
+
+@Test func migrationAddsFuelOnce() throws {
+    let old = ##"{"schema":1,"settings":{},"categories":[{"id":"transport","name":"Μετακινήσεις","emoji":"🚗","color":"#2563eb","budget":null},{"id":"other","name":"Άλλα","emoji":"📦","color":"#64748b","budget":5000}],"purchases":[]}"##
+    let d = try JSONDecoder().decode(AppData.self, from: Data(old.utf8)).sanitized()
+    #expect(d.categories.map(\.id) == ["transport", "fuel", "other"])
+    #expect(d.categories[2].budgetPeriod == .month && d.categories[2].budget == 5000)
+    // a user who deleted it later does not get it back
+    var again = d
+    again.categories.removeAll { $0.id == "fuel" }
+    #expect(!again.sanitized().categories.contains { $0.id == "fuel" })
 }

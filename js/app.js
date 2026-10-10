@@ -3,13 +3,14 @@ import * as L from './logic.js';
 import { deriveKey, encryptJSON, decryptJSON, randomSalt, PBKDF2_ITERATIONS } from './crypto.js';
 
 const APP_VERSION = self.APP_VERSION || 'dev';
-const SCHEMA = 1;
+const SCHEMA = 2;
 
 const DEFAULT_CATEGORIES = [
   { id: 'groceries', name: 'Σούπερ μάρκετ', emoji: '🛒', color: '#16a34a', budget: null },
   { id: 'food', name: 'Φαγητό έξω', emoji: '🍔', color: '#ea580c', budget: null },
   { id: 'coffee', name: 'Καφές', emoji: '☕', color: '#a16207', budget: null },
   { id: 'transport', name: 'Μετακινήσεις', emoji: '🚗', color: '#2563eb', budget: null },
+  { id: 'fuel', name: 'Καύσιμα', emoji: '⛽', color: '#0891b2', budget: null },
   { id: 'home', name: 'Σπίτι & λογαριασμοί', emoji: '🏠', color: '#7c3aed', budget: null },
   { id: 'health', name: 'Υγεία', emoji: '💊', color: '#dc2626', budget: null },
   { id: 'fun', name: 'Διασκέδαση', emoji: '🎉', color: '#db2777', budget: null },
@@ -23,6 +24,7 @@ const MERCHANT_HINTS = [
   [/lidl|σκλαβεν|sklavenitis|masoutis|μασούτ|\bab\b|vasilopoulos|βασιλόπουλ|my ?market|kritikos|κρητικός|galaxias|γαλαξίας|bazaar|market|μάρκετ|φούρν|bakery|φρουτ|κρεοπ|λαϊκή/i, 'groceries'],
   [/coffee|καφ|starbucks|everest|gregory|mikel|γρηγόρ/i, 'coffee'],
   [/efood|wolt|\bbox\b|pizza|πίτσα|souvlaki|σουβλ|ψητοπ|restaurant|εστιατ|ταβέρν|burger|mcdonald|goody/i, 'food'],
+  [/shell|\bbp\b|\beko\b|avin|aegean|revoil|elin|καύσιμ|βενζίν|fuel|cyclon|jet oil/i, 'fuel'],
   [/shell|\bbp\b|\beko\b|avin|aegean|revoil|elin|καύσιμ|fuel|oasa|οασα|taxi|ταξί|uber|freenow|parking|στάθμευ|attiki odos|αττική οδός|metro|μετρό/i, 'transport'],
   [/φαρμακ|pharma|clinic|κλινικ|ιατρ|γιατρ|οδοντ/i, 'health'],
   [/netflix|spotify|apple\.com|icloud|disney|youtube|google|prime|vodafone|cosmote|\bnova\b|wind/i, 'subs'],
@@ -111,7 +113,7 @@ function defaultData() {
   return {
     schema: SCHEMA,
     settings: { budgets: { day: null, week: null, month: null, year: null }, weekStart: 1, currency: 'EUR', autoLockSec: 60 },
-    categories: structuredClone(DEFAULT_CATEGORIES),
+    categories: structuredClone(DEFAULT_CATEGORIES).map((c) => ({ ...c, budgetPeriod: 'month', budgetHistory: [] })),
     purchases: [],
   };
 }
@@ -136,9 +138,24 @@ function sanitize(raw) {
         emoji: str(c.emoji, 16) || '•',
         color: isHex(c.color) ? c.color : '#64748b',
         budget: optCents(c.budget),
+        budgetPeriod: c.budgetPeriod === 'week' ? 'week' : 'month',
+        budgetHistory: (Array.isArray(c.budgetHistory) ? c.budgetHistory : []).slice(-200)
+          .filter((h) => h && Number.isFinite(h.at))
+          .map((h) => ({
+            at: h.at,
+            from: optCents(h.from),
+            fromPeriod: h.from == null ? null : (h.fromPeriod === 'week' ? 'week' : 'month'),
+            to: optCents(h.to),
+            period: h.period === 'week' ? 'week' : 'month',
+          })),
       }))
     : def.categories;
   if (!categories.length) categories = def.categories;
+  // Schema 2 added the "Καύσιμα" category.
+  if ((raw.schema ?? 1) < 2 && !categories.some((c) => c.id === 'fuel')) {
+    const at = categories.findIndex((c) => c.id === 'transport');
+    categories.splice(at >= 0 ? at + 1 : Math.max(0, categories.length - 1), 0, structuredClone(def.categories.find((c) => c.id === 'fuel')));
+  }
   if (!categories.some((c) => c.id === 'other')) categories.push(def.categories.find((c) => c.id === 'other'));
   const catIds = new Set(categories.map((c) => c.id));
   const purchases = (Array.isArray(raw.purchases) ? raw.purchases : [])
@@ -384,6 +401,7 @@ function renderHome() {
     ${installHint()}
     ${homeHero(allocs)}
     <section class="card">${rows}</section>
+    ${categoryBudgetsCard(allocs, t)}
     ${committed > 0 ? `<p class="note">📅 ${money(committed)} έχουν ήδη κατανεμηθεί σε επόμενες ημέρες.</p>` : ''}
     ${byCat.length ? `<section class="card">
       <div class="card-head"><h2 class="card-title">Κατηγορίες αυτόν τον μήνα</h2>
@@ -396,6 +414,24 @@ function renderHome() {
       ${recent.length ? `<div class="plist">${recent.map(purchaseCard).join('')}</div>`
         : '<p class="muted">Δεν υπάρχουν ακόμη αγορές. Πάτα <strong>+</strong> για να προσθέσεις.</p>'}
     </section>`;
+}
+
+function categoryBudgetsCard(allocs, t) {
+  const list = L.categoryBudgets(C(), allocs, t, S().weekStart)
+    .sort((a, b) => ratioOf(b.spent, b.budget) - ratioOf(a.spent, a.budget));
+  if (!list.length) return '';
+  return `<section class="card">
+    <div class="card-head"><h2 class="card-title">Όρια κατηγοριών</h2><button class="link" data-action="goto" data-tab="settings">Ρύθμιση</button></div>
+    ${list.map(({ cat: c, spent, budget }) => {
+      const r = ratioOf(spent, budget);
+      return `<div class="prow">
+        <div class="prow-head"><span>${esc(c.emoji)} ${esc(c.name)} <span class="tag">${c.budgetPeriod === 'week' ? 'εβδ.' : 'μήνας'}</span> ${changesBadge(c)}</span>
+          <span><strong>${money(spent)}</strong> <span class="muted">/ ${money(budget)}</span></span></div>
+        <div class="bar"><div class="bar-fill ${level(r)}" data-w="${r * 100}"></div></div>
+        <div class="prow-foot ${spent > budget ? 'over-text' : 'muted'}">${spent <= budget ? `απομένουν ${money(budget - spent)}` : `υπέρβαση ${money(spent - budget)}`}</div>
+      </div>`;
+    }).join('')}
+  </section>`;
 }
 
 function homeHero(allocs) {
@@ -463,7 +499,8 @@ function catBar({ cat, cents }, max, opts = {}) {
   const c = catById(cat);
   const pct = opts.total ? Math.round((cents / opts.total) * 100) : null;
   const tag = opts.action ? 'button' : 'div';
-  const budget = opts.showBudget && c.budget != null ? ` <span class="muted">/ ${money(c.budget)}</span>` : '';
+  const budget = opts.showBudget && c.budget != null && opts.showBudget === (c.budgetPeriod || 'month')
+    ? ` <span class="muted">/ ${money(c.budget)}</span>` : '';
   return `<${tag} class="catbar ${opts.selected ? 'selected' : ''}" data-color="${c.color}" ${opts.action ? `data-action="${opts.action}" data-cat="${esc(c.id)}"` : ''}>
     <div class="catbar-head"><span>${esc(c.emoji)} ${esc(c.name)}</span>
       <span><strong>${money(cents)}</strong>${budget}${pct != null ? ` <span class="muted">${pct}%</span>` : ''}</span></div>
@@ -545,7 +582,7 @@ function renderStats() {
   const avg = elapsed ? L.sum(filtered.filter((a) => a.date <= elapsedEnd)) / elapsed : null;
 
   const cat = st.cat ? catById(st.cat) : null;
-  const budget = cat ? (st.kind === 'month' ? cat.budget : null) : s.budgets[st.kind];
+  const budget = cat ? (st.kind === (cat.budgetPeriod || 'month') ? cat.budget : null) : s.budgets[st.kind];
 
   // Buckets: days for week/month, months for a year.
   let buckets;
@@ -574,10 +611,15 @@ function renderStats() {
   const m = L.period('month', start);
   const monthDays = L.daysBetween(m.start, m.end) + 1;
   let refLine = null;
-  if (st.kind === 'year') {
-    refLine = cat ? cat.budget : s.budgets.month ?? (s.budgets.year != null ? s.budgets.year / 12 : null);
-  } else if (cat) {
-    refLine = cat.budget != null ? cat.budget / monthDays : null;
+  if (cat) {
+    if (cat.budget != null) {
+      const weekly = cat.budgetPeriod === 'week';
+      // a weekly limit is ~52/12 weeks per month
+      if (st.kind === 'year') refLine = weekly ? (cat.budget * 52) / 12 : cat.budget;
+      else refLine = weekly ? cat.budget / 7 : cat.budget / monthDays;
+    }
+  } else if (st.kind === 'year') {
+    refLine = s.budgets.month ?? (s.budgets.year != null ? s.budgets.year / 12 : null);
   } else if (s.budgets.day != null) refLine = s.budgets.day;
   else if (s.budgets.week != null) refLine = s.budgets.week / 7;
   else if (s.budgets.month != null) refLine = s.budgets.month / monthDays;
@@ -626,7 +668,7 @@ function renderStats() {
 
     <section class="card">
       <h2 class="card-title">Ανά κατηγορία</h2>
-      ${byCat.length ? byCat.map((c) => catBar(c, maxCat, { total: catTotal, action: 'stats-cat', selected: c.cat === st.cat, showBudget: st.kind === 'month' })).join('')
+      ${byCat.length ? byCat.map((c) => catBar(c, maxCat, { total: catTotal, action: 'stats-cat', selected: c.cat === st.cat, showBudget: st.kind })).join('')
         : '<p class="muted">Καμία δαπάνη σε αυτή την περίοδο.</p>'}
     </section>
 
@@ -692,11 +734,22 @@ function renderSettings() {
   </section>
 
   <section class="card">
+    <h2 class="card-title">Budget ανά κατηγορία</h2>
+    <p class="muted small">Ξεχωριστό όριο ανά εβδομάδα ή μήνα για κάθε κατηγορία, π.χ. Καύσιμα 60 €/εβδομάδα. Το ✎ δείχνει πόσες φορές το άλλαξες.</p>
+    <div class="cat-list">
+      ${C().map((c) => `<button class="cat-row" data-action="cat-budget" data-id="${esc(c.id)}">
+        <span class="pcard-icon" data-color="${c.color}">${esc(c.emoji)}</span><span class="grow">${esc(c.name)}</span>
+        <span class="muted small">${c.budget != null ? `${money(c.budget)}/${c.budgetPeriod === 'week' ? 'εβδ.' : 'μήνα'}` : '—'}</span>
+        ${changesBadge(c)}<span class="chev">›</span></button>`).join('')}
+    </div>
+  </section>
+
+  <section class="card">
     <div class="card-head"><h2 class="card-title">Κατηγορίες</h2><button class="link" data-action="new-cat">+ Νέα</button></div>
     <div class="cat-list">
       ${C().map((c) => `<button class="cat-row" data-action="edit-cat" data-id="${esc(c.id)}">
         <span class="pcard-icon" data-color="${c.color}">${esc(c.emoji)}</span><span class="grow">${esc(c.name)}</span>
-        <span class="muted small">${c.budget != null ? `${money(c.budget)}/μήνα` : ''}</span><span class="chev">›</span></button>`).join('')}
+        <span class="chev">›</span></button>`).join('')}
     </div>
   </section>
 
@@ -805,6 +858,7 @@ const actions = {
   },
   'edit-cat': (el) => openCategoryEditor(C().find((c) => c.id === el.dataset.id)),
   'new-cat': () => openCategoryEditor(null),
+  'cat-budget': (el) => openCategoryBudget(el.dataset.id),
   'test-paste': async () => {
     const tx = await readClipboardTransaction();
     if (tx) toast(`Βρέθηκε: ${money(tx.cents)}${tx.merchant ? ` · ${tx.merchant}` : ''}`);
@@ -1185,7 +1239,7 @@ function handleUrlParams() {
 
 function openCategoryEditor(cat) {
   const isNew = !cat;
-  const c = cat ? { ...cat } : { id: uid(), name: '', emoji: '🏷️', color: '#0ea5e9', budget: null };
+  const c = cat ? { ...cat } : { id: uid(), name: '', emoji: '🏷️', color: '#0ea5e9', budget: null, budgetPeriod: 'month', budgetHistory: [] };
   openSheet(`<form class="sheet-form small-sheet" novalidate>
     <header class="sheet-head"><button type="button" class="link" data-close>Άκυρο</button>
       <h2>${isNew ? 'Νέα κατηγορία' : 'Κατηγορία'}</h2><button type="submit" class="link strong">Αποθήκευση</button></header>
@@ -1195,8 +1249,7 @@ function openCategoryEditor(cat) {
         <label class="field grow"><span>Όνομα</span><input name="name" value="${esc(c.name)}" required autocomplete="off"></label>
         <label class="field"><span>Χρώμα</span><input name="color" type="color" value="${esc(c.color)}"></label>
       </div>
-      <label class="field"><span>Μηνιαίο budget κατηγορίας (προαιρετικό)</span>
-        <span class="money-input"><input name="budget" inputmode="decimal" value="${L.centsToInput(c.budget)}" placeholder="—"><span>€</span></span></label>
+      <p class="muted small">Το budget της κατηγορίας ορίζεται στις Ρυθμίσεις → «Budget ανά κατηγορία».</p>
       ${!isNew && c.id !== 'other' ? '<button type="button" class="btn danger full" id="delCat">Διαγραφή κατηγορίας</button>' : ''}
     </div></form>`, (d) => {
     const f = d.querySelector('form');
@@ -1205,11 +1258,8 @@ function openCategoryEditor(cat) {
       e.preventDefault();
       const name = f.name.value.trim().slice(0, 60);
       if (!name) { toast('Δώσε όνομα'); return; }
-      const b = f.budget.value.trim();
-      const budget = b === '' ? null : L.toCents(b);
-      if (budget != null && !(budget >= 0)) { toast('Μη έγκυρο budget'); return; }
       const emoji = firstGrapheme(f.emoji.value.trim()) || '•';
-      Object.assign(c, { name, emoji, color: isHex(f.color.value) ? f.color.value : c.color, budget });
+      Object.assign(c, { name, emoji, color: isHex(f.color.value) ? f.color.value : c.color });
       if (isNew) C().push(c);
       else C()[C().findIndex((x) => x.id === c.id)] = c;
       await save();
@@ -1223,6 +1273,59 @@ function openCategoryEditor(cat) {
       state.data.categories = C().filter((x) => x.id !== c.id);
       if (state.stats.cat === c.id) state.stats.cat = null;
       await save();
+      closeSheet();
+      render();
+    });
+  });
+}
+
+const perLabel = (p) => (p === 'week' ? '/εβδ.' : '/μήνα');
+
+function changesBadge(c) {
+  const n = L.budgetChanges(c);
+  return n ? `<span class="badge" title="Άλλαξε ${n} φορές">✎ ${n}</span>` : '';
+}
+
+function describeChange(h) {
+  if (h.from == null && h.to != null) return `Ορίστηκε ${money(h.to)}${perLabel(h.period)}`;
+  if (h.from != null && h.to == null) return `Αφαιρέθηκε (ήταν ${money(h.from)}${perLabel(h.fromPeriod)})`;
+  return `${money(h.from)}${perLabel(h.fromPeriod)} → ${money(h.to)}${perLabel(h.period)}`;
+}
+
+function openCategoryBudget(id) {
+  const c = C().find((x) => x.id === id);
+  if (!c) return;
+  const n = L.budgetChanges(c);
+  const status = L.categoryBudgets([c], L.allocations(P()), L.today(), S().weekStart)[0];
+  const fmtDate = (ms) => new Date(ms).toLocaleDateString('el-GR', { day: 'numeric', month: 'short', year: 'numeric' });
+  const history = [...(c.budgetHistory || [])].reverse();
+  openSheet(`<form class="sheet-form small-sheet" novalidate>
+    <header class="sheet-head"><button type="button" class="link" data-close>Άκυρο</button>
+      <h2>Budget κατηγορίας</h2><button type="submit" class="link strong">Αποθήκευση</button></header>
+    <div class="sheet-body">
+      <div class="cat-row static"><span class="pcard-icon" data-color="${c.color}">${esc(c.emoji)}</span>
+        <span class="grow"><strong>${esc(c.name)}</strong><br><span class="muted small">${n ? `Το budget άλλαξε ${n} ${n === 1 ? 'φορά' : 'φορές'}` : 'Χωρίς αλλαγές μέχρι τώρα'}</span></span></div>
+      <div class="field-row">
+        <label class="field"><span>Όριο</span><span class="money-input"><input name="amount" inputmode="decimal" value="${L.centsToInput(c.budget)}" placeholder="—" autocomplete="off"><span>€</span></span></label>
+        <label class="field grow"><span>Ανά</span><select name="period">
+          <option value="week" ${c.budgetPeriod === 'week' ? 'selected' : ''}>Εβδομάδα</option>
+          <option value="month" ${c.budgetPeriod !== 'week' ? 'selected' : ''}>Μήνα</option></select></label>
+      </div>
+      <p class="muted small">Άφησε κενό για κανένα όριο.</p>
+      ${status ? `<div class="card"><div class="prow-head"><span>${c.budgetPeriod === 'week' ? 'Αυτή την εβδομάδα' : 'Αυτόν τον μήνα'}</span>
+        <span><strong>${money(status.spent)}</strong> <span class="muted">/ ${money(status.budget)}</span></span></div>
+        <div class="bar"><div class="bar-fill ${level(ratioOf(status.spent, status.budget))}" data-w="${ratioOf(status.spent, status.budget) * 100}"></div></div></div>` : ''}
+      <div class="section-title">Ιστορικό αλλαγών (${n})</div>
+      ${history.length ? `<ul class="history">${history.map((h) => `<li><span>${esc(describeChange(h))}</span><span class="muted small">${fmtDate(h.at)}</span></li>`).join('')}</ul>`
+        : '<p class="muted small">Δεν έχει οριστεί ακόμα budget.</p>'}
+    </div></form>`, (d) => {
+    const f = d.querySelector('form');
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const t = f.amount.value.trim();
+      const cents = t === '' ? null : L.toCents(t);
+      if (cents != null && !(cents >= 0)) { toast('Μη έγκυρο ποσό'); return; }
+      if (L.setCategoryBudget(c, cents, f.period.value)) await save();
       closeSheet();
       render();
     });

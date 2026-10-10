@@ -261,6 +261,28 @@ public enum Logic {
     }
 }
 
+// MARK: - Category budgets
+
+public struct CategoryBudgetStatus: Sendable {
+    public let category: Category
+    public let period: Period
+    public let budget: Int
+    public let spent: Int
+    public var ratio: Double { budget > 0 ? Double(spent) / Double(budget) : (spent > 0 ? 1 : 0) }
+}
+
+public extension Logic {
+    /// Spending of every category that has a budget, in that category's current week or month.
+    static func categoryBudgets(_ data: AppData, allocs: [Alloc], today: String) -> [CategoryBudgetStatus] {
+        data.categories.compactMap { c in
+            guard let b = c.budget else { return nil }
+            let p = period(c.budgetPeriod, today, weekStart: data.settings.weekStart)
+            let spent = sum(allocs.filter { $0.cat == c.id && p.contains($0.date) })
+            return CategoryBudgetStatus(category: c, period: p, budget: b, spent: spent)
+        }
+    }
+}
+
 // MARK: - Budget alerts
 
 public struct BudgetAlert: Equatable, Sendable {
@@ -269,11 +291,12 @@ public struct BudgetAlert: Equatable, Sendable {
     public let body: String
 }
 
+/// Notification texts never contain amounts, since they can show on the lock screen.
 public enum Alerts {
-    private static let periodName: [PeriodKind: String] = [.week: "εβδομαδιαίου", .month: "μηνιαίου", .year: "ετήσιου"]
+    private static let periodAdj: [PeriodKind: String] = [.week: "εβδομαδιαίου", .month: "μηνιαίου", .year: "ετήσιου"]
 
     /// Alerts that should fire now and have not been sent before (deduplicated by key).
-    public static func pending(_ data: AppData, today: String, money: (Int) -> String) -> [BudgetAlert] {
+    public static func pending(_ data: AppData, today: String) -> [BudgetAlert] {
         let s = data.settings
         guard s.budgetAlerts else { return [] }
         let allocs = Logic.allocations(data.purchases)
@@ -283,20 +306,31 @@ public enum Alerts {
             let spent = Logic.sum(allocs.filter { $0.date == today })
             if spent > max(0, a.cents) {
                 out.append(BudgetAlert(key: "day-\(today)", title: "Ξεπέρασες το σημερινό όριο",
-                                       body: "Σήμερα: \(money(spent)) από \(money(max(0, a.cents))) διαθέσιμα."))
+                                       body: "Άνοιξε την εφαρμογή για λεπτομέρειες."))
             }
         }
         for k in [PeriodKind.week, .month, .year] {
             guard let b = s.budgets[k], b > 0 else { continue }
             let p = Logic.period(k, today, weekStart: s.weekStart)
             let spent = Logic.sum(allocs.filter { p.contains($0.date) })
-            let name = periodName[k]!
+            let adj = periodAdj[k]!
             if spent >= b {
                 out.append(BudgetAlert(key: "\(k.rawValue)-\(p.start)-100", title: "Ξεπεράστηκε το budget",
-                                       body: "Ξόδεψες \(money(spent)) από \(money(b)) του \(name) budget."))
+                                       body: "Ξεπέρασες το όριο του \(adj) budget."))
             } else if spent * 10 >= b * 8 {
                 out.append(BudgetAlert(key: "\(k.rawValue)-\(p.start)-80", title: "Πλησιάζεις το όριο",
-                                       body: "Έφτασες το \(spent * 100 / b)% του \(name) budget. Απομένουν \(money(b - spent))."))
+                                       body: "Έφτασες το \(spent * 100 / b)% του \(adj) budget."))
+            }
+        }
+        for c in Logic.categoryBudgets(data, allocs: allocs, today: today) where c.budget > 0 {
+            let adj = periodAdj[c.category.budgetPeriod]!
+            let name = c.category.name
+            if c.spent >= c.budget {
+                out.append(BudgetAlert(key: "cat-\(c.category.id)-\(c.period.start)-100", title: "\(c.category.emoji) \(name): ξεπεράστηκε το όριο",
+                                       body: "Ξεπέρασες το \(adj) όριο της κατηγορίας."))
+            } else if c.spent * 10 >= c.budget * 8 {
+                out.append(BudgetAlert(key: "cat-\(c.category.id)-\(c.period.start)-80", title: "\(c.category.emoji) \(name): πλησιάζεις το όριο",
+                                       body: "Έφτασες το \(c.spent * 100 / c.budget)% του \(adj) ορίου της κατηγορίας."))
             }
         }
         let sent = Set(s.alertsSent)
@@ -311,6 +345,7 @@ public enum MerchantHints {
         (#"lidl|σκλαβεν|sklavenitis|masoutis|μασούτ|\bab\b|vasilopoulos|βασιλόπουλ|my ?market|kritikos|κρητικός|galaxias|γαλαξίας|bazaar|market|μάρκετ|φούρν|bakery|φρουτ|κρεοπ|λαϊκή"#, "groceries"),
         (#"coffee|καφ|starbucks|everest|gregory|mikel|γρηγόρ"#, "coffee"),
         (#"efood|wolt|\bbox\b|pizza|πίτσα|souvlaki|σουβλ|ψητοπ|restaurant|εστιατ|ταβέρν|burger|mcdonald|goody"#, "food"),
+        (#"shell|\bbp\b|\beko\b|avin|aegean|revoil|elin|καύσιμ|βενζίν|fuel|cyclon|jet oil"#, "fuel"),
         (#"shell|\bbp\b|\beko\b|avin|aegean|revoil|elin|καύσιμ|fuel|oasa|οασα|taxi|ταξί|uber|freenow|parking|στάθμευ|attiki odos|αττική οδός|metro|μετρό"#, "transport"),
         (#"φαρμακ|pharma|clinic|κλινικ|ιατρ|γιατρ|οδοντ"#, "health"),
         (#"netflix|spotify|apple\.com|icloud|disney|youtube|google|prime|vodafone|cosmote|\bnova\b|wind"#, "subs"),

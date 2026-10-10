@@ -18,10 +18,18 @@ enum Demo {
         d.settings.budgets.week = 10000
         d.settings.budgetAlerts = false
         let today = Days.today()
+        if let i = d.categories.firstIndex(where: { $0.id == "fuel" }) {
+            d.categories[i].setBudget(5000, period: .week, at: 1_759_000_000_000)
+            d.categories[i].setBudget(7000, period: .week, at: 1_759_500_000_000)
+            d.categories[i].setBudget(6000, period: .week, at: 1_760_000_000_000)
+        }
+        if let i = d.categories.firstIndex(where: { $0.id == "groceries" }) {
+            d.categories[i].setBudget(25000, period: .month, at: 1_759_000_000_000)
+        }
         let shops: [(String, String, [(String, Int, Int)])] = [
             ("Σκλαβενίτης", "groceries", [("Ψωμί", 120, 2), ("Φέτα", 650, 4), ("Ντομάτες", 310, 3), ("Γιαούρτι", 220, 1)]),
             ("Coffee Island", "coffee", [("Freddo espresso", 250, 1)]),
-            ("Shell", "transport", [("Βενζίνη", 4000, 7)]),
+            ("Shell", "fuel", [("Βενζίνη", 4000, 7)]),
             ("efood", "food", [("Σουβλάκια", 1150, 1)]),
             ("Φαρμακείο", "health", [("Depon", 350, 1)]),
         ]

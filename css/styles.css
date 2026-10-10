@@ -490,3 +490,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---------- category budgets ---------- */
+
+.badge { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 0.72rem; font-weight: 700; color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); white-space: nowrap; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 99px; font-size: 0.7rem; color: var(--muted); background: var(--surface-2); }
+.over-text { color: var(--red); }
+.cat-row.static { border-bottom: 0; cursor: default; }
+.history { list-style: none; margin: 0; padding: 0; }
+.history li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
+.history li:last-child { border-bottom: 0; }

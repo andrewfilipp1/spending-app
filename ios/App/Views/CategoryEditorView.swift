@@ -9,7 +9,6 @@ struct CategoryEditorView: View {
     @State private var name: String
     @State private var emoji: String
     @State private var color: Color
-    @State private var budget: String
     @State private var confirmDelete = false
 
     init(category: Cat?) {
@@ -17,7 +16,6 @@ struct CategoryEditorView: View {
         _name = State(initialValue: category?.name ?? "")
         _emoji = State(initialValue: category?.emoji ?? "🏷️")
         _color = State(initialValue: Color(hex: category?.color ?? "#0ea5e9"))
-        _budget = State(initialValue: Money.inputText(category?.budget))
     }
 
     var body: some View {
@@ -32,18 +30,17 @@ struct CategoryEditorView: View {
                 }
                 ColorPicker("Χρώμα", selection: $color, supportsOpacity: false)
             }
-            Section {
-                HStack {
-                    Text("Μηνιαίο budget")
-                    Spacer()
-                    TextField("—", text: $budget)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 110)
-                    Text("€").foregroundStyle(.secondary)
+            if let original {
+                Section {
+                    NavigationLink { CategoryBudgetView(categoryID: original.id) } label: {
+                        HStack {
+                            Text("Budget")
+                            Spacer()
+                            Text(original.budget.map { "\(Fmt.money($0))/\(original.budgetPeriod == .week ? "εβδ." : "μήνα")" } ?? "—")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
-            } footer: {
-                Text("Προαιρετικό. Εμφανίζεται στα στατιστικά του μήνα.")
             }
             if let original, original.id != "other" {
                 Section {
@@ -71,14 +68,11 @@ struct CategoryEditorView: View {
     }
 
     private func save() {
-        let trimmedBudget = budget.trimmingCharacters(in: .whitespaces)
-        let cents = trimmedBudget.isEmpty ? nil : Money.toCents(trimmedBudget).flatMap { $0 >= 0 ? $0 : nil }
         let symbol = emoji.trimmingCharacters(in: .whitespaces).first.map(String.init) ?? "•"
         var c = original ?? Cat(name: "", emoji: "", color: "")
         c.name = String(name.trimmingCharacters(in: .whitespaces).prefix(60))
         c.emoji = symbol
         c.color = color.hex
-        c.budget = cents
         store.update { d in
             if let i = d.categories.firstIndex(where: { $0.id == c.id }) { d.categories[i] = c } else { d.categories.append(c) }
         }

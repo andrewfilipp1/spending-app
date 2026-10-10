@@ -169,3 +169,32 @@ export function parseTransaction(text) {
   if (Number.isNaN(cents)) return null;
   return { cents: Math.abs(cents), merchant };
 }
+
+// ---------- category budgets ----------
+
+// Sets a category's budget (cents per 'week' or 'month') and records the change.
+// Returns false if nothing changed. Mutates `cat`.
+export function setCategoryBudget(cat, cents, period, at = Date.now()) {
+  period = period === 'week' ? 'week' : 'month';
+  const cur = cat.budget ?? null;
+  const curPeriod = cat.budgetPeriod === 'week' ? 'week' : 'month';
+  if (cents === cur && (cents == null || period === curPeriod)) return false;
+  cat.budgetHistory = [...(cat.budgetHistory || []),
+    { at, from: cur, fromPeriod: cur == null ? null : curPeriod, to: cents, period }].slice(-200);
+  cat.budget = cents;
+  cat.budgetPeriod = period;
+  return true;
+}
+
+// Times an existing budget was changed or removed (setting it the first time is not a change).
+export const budgetChanges = (cat) => (cat.budgetHistory || []).filter((h) => h.from != null).length;
+
+// Spending of every category that has a budget, within that category's current week or month.
+export function categoryBudgets(categories, allocs, today, weekStart = 1) {
+  return categories.filter((c) => c.budget != null).map((c) => {
+    const { start, end } = period(c.budgetPeriod === 'week' ? 'week' : 'month', today, weekStart);
+    let spent = 0;
+    for (const a of allocs) if (a.cat === c.id && a.date >= start && a.date <= end) spent += a.cents;
+    return { cat: c, start, end, budget: c.budget, spent };
+  });
+}

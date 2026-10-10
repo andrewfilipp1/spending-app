@@ -18,6 +18,7 @@ struct HomeView: View {
                     } else {
                         HeroCard(data: data, allocs: allocs, today: today)
                         PeriodsCard(data: data, allocs: allocs, today: today)
+                        CategoryBudgetsCard(data: data, allocs: allocs, today: today)
                         let committed = Logic.sum(allocs.filter { $0.date > today })
                         if committed > 0 {
                             Label("\(Fmt.money(committed)) έχουν ήδη κατανεμηθεί σε επόμενες ημέρες.", systemImage: "calendar")
@@ -115,6 +116,46 @@ private struct PeriodsCard: View {
     }
 }
 
+private struct CategoryBudgetsCard: View {
+    @Environment(Router.self) private var router
+    let data: AppData
+    let allocs: [Alloc]
+    let today: String
+
+    var body: some View {
+        let list = Logic.categoryBudgets(data, allocs: allocs, today: today).sorted { $0.ratio > $1.ratio }
+        if !list.isEmpty {
+            Card {
+                HStack {
+                    Text("Όρια κατηγοριών").font(.headline)
+                    Spacer()
+                    Button("Ρύθμιση") { router.tab = .settings }.font(.subheadline)
+                }
+                ForEach(list, id: \.category.id) { s in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text("\(s.category.emoji) \(s.category.name)").lineLimit(1)
+                            Text(s.category.budgetPeriod == .week ? "εβδ." : "μήνας")
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color(.tertiarySystemFill), in: Capsule())
+                            if s.category.budgetChanges > 0 { BudgetChangesBadge(count: s.category.budgetChanges) }
+                            Spacer()
+                            Text(Fmt.money(s.spent)).fontWeight(.semibold).monospacedDigit()
+                            Text("/ \(Fmt.money(s.budget))").foregroundStyle(.secondary).monospacedDigit()
+                        }
+                        .font(.subheadline)
+                        ProgressBar(value: s.ratio, color: levelColor(s.ratio))
+                        Text(s.spent <= s.budget ? "απομένουν \(Fmt.money(s.budget - s.spent))" : "υπέρβαση \(Fmt.money(s.spent - s.budget))")
+                            .font(.caption).foregroundStyle(s.spent <= s.budget ? Color.secondary : Color.red)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+}
+
 private struct ReviewCard: View {
     @Environment(Store.self) private var store
     @Environment(Router.self) private var router
@@ -163,7 +204,8 @@ private struct MonthCategoriesCard: View {
                     Button("Όλα") { router.tab = .stats }.font(.subheadline)
                 }
                 ForEach(groups.prefix(6), id: \.cat) { g in
-                    CategoryBar(category: data.category(g.cat), cents: g.cents, max: groups[0].cents, budget: data.category(g.cat).budget)
+                    CategoryBar(category: data.category(g.cat), cents: g.cents, max: groups[0].cents,
+                                budget: data.category(g.cat).budgetPeriod == .month ? data.category(g.cat).budget : nil)
                 }
             }
         }

@@ -82,7 +82,7 @@ struct StatsView: View {
         let prevP = Logic.period(kind, Logic.shift(kind, ref, by: -1), weekStart: data.settings.weekStart)
         let prevTotal = Logic.sum(all.filter { prevP.contains($0.date) && (category == nil || $0.cat == category) })
         let cat = category.map { data.category($0) }
-        let budget: Int? = cat != nil ? (kind == .month ? cat!.budget : nil) : data.settings.budgets[kind]
+        let budget: Int? = cat != nil ? (kind == cat!.budgetPeriod ? cat!.budget : nil) : data.settings.budgets[kind]
 
         if let cat {
             HStack {
@@ -189,11 +189,17 @@ struct StatsView: View {
         let s = store.data.settings
         let m = Logic.period(.month, period.start)
         let monthDays = Double(m.length)
+        if let cat, let b = cat.budget {
+            // a weekly limit is ~52/12 weeks per month
+            let perMonth = cat.budgetPeriod == .week ? Double(b) * 52 / 12 : Double(b)
+            if kind == .year { return perMonth }
+            return cat.budgetPeriod == .week ? Double(b) / 7 : perMonth / monthDays
+        }
         if kind == .year {
-            if let cat { return cat.budget.map(Double.init) }
+            if cat != nil { return nil }
             return s.budgets.month.map(Double.init) ?? s.budgets.year.map { Double($0) / 12 }
         }
-        if let cat { return cat.budget.map { Double($0) / monthDays } }
+        if cat != nil { return nil }
         if let d = s.budgets.day { return Double(d) }
         if let w = s.budgets.week { return Double(w) / 7 }
         if let mo = s.budgets.month { return Double(mo) / monthDays }
@@ -258,7 +264,7 @@ struct StatsView: View {
                 } label: {
                     CategoryBar(category: data.category(g.cat), cents: g.cents, max: groups[0].cents,
                                 percent: total > 0 ? g.cents * 100 / total : nil,
-                                budget: kind == .month ? data.category(g.cat).budget : nil,
+                                budget: kind == data.category(g.cat).budgetPeriod ? data.category(g.cat).budget : nil,
                                 selected: category == g.cat)
                 }
                 .buttonStyle(.plain)

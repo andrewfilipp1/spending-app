@@ -54,7 +54,7 @@ final class Notifier {
     }
 
     private func sendBudgetAlerts(_ store: Store) {
-        let alerts = Alerts.pending(store.data, today: Days.today(), money: Fmt.money)
+        let alerts = Alerts.pending(store.data, today: Days.today())
         guard !alerts.isEmpty else { return }
         for a in alerts {
             let content = UNMutableNotificationContent()
