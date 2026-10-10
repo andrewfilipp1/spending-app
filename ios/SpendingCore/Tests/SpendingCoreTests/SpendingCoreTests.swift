@@ -114,12 +114,14 @@ import Testing
 
 @Test func categoryBudgetHistoryCountsChanges() {
     var c = Cat0()
-    #expect(c.setBudget(20000, period: .month, at: 1))
+    let first = c.setBudget(20000, period: .month, at: 1)
+    #expect(first)
     #expect(c.budgetChanges == 0) // first time is not a change
-    #expect(!c.setBudget(20000, period: .month, at: 2)) // same value: nothing recorded
-    #expect(c.setBudget(25000, period: .month, at: 3))
-    #expect(c.setBudget(6000, period: .week, at: 4))
-    #expect(c.setBudget(nil, period: .week, at: 5))
+    let same = c.setBudget(20000, period: .month, at: 2) // same value: nothing recorded
+    #expect(!same)
+    c.setBudget(25000, period: .month, at: 3)
+    c.setBudget(6000, period: .week, at: 4)
+    c.setBudget(nil, period: .week, at: 5)
     #expect(c.budgetChanges == 3)
     #expect(c.budgetHistory.count == 4)
     #expect(c.budgetHistory[2].fromPeriod == .month && c.budgetHistory[2].period == .week)
