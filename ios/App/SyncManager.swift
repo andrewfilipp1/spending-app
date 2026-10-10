@@ -5,7 +5,7 @@ import SpendingCore
 
 enum SyncConfig {
     /// Address of the sync server (server/). Empty = account features hidden.
-    static let url = URL(string: "")
+    static let url = URL(string: "https://sync.62-238-96-63.sslip.io")
 }
 
 /// Account keys live in the Keychain, readable only while this iPhone is unlocked and never

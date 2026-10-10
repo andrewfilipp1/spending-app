@@ -1,0 +1,26 @@
+{
+	# Port 80 may belong to another service on this machine: don't use it.
+	# Certificates are obtained through the TLS-ALPN challenge on port 443.
+	http_port 8081
+	auto_https disable_redirects
+}
+
+{$SYNC_DOMAIN} {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+	encode gzip
+	request_body {
+		max_size 6MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	reverse_proxy sync:8787 {
+		header_up X-Real-IP {remote_host}
+	}
+}
