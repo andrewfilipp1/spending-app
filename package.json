@@ -1,0 +1,12 @@
+{
+  "name": "spending-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ιδιωτική εφαρμογή budget & εξόδων (PWA) — τα δεδομένα μένουν στη συσκευή.",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test tests/*.test.js",
+    "release": "node tools/release.mjs"
+  }
+}
