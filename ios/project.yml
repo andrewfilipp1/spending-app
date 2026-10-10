@@ -1,0 +1,45 @@
+# Generates Oikonomika.xcodeproj:  cd ios && xcodegen
+name: Oikonomika
+options:
+  bundleIdPrefix: com.andrewfilipp
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: el
+packages:
+  SpendingCore:
+    path: SpendingCore
+targets:
+  Oikonomika:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: SpendingCore
+    settings:
+      base:
+        PRODUCT_NAME: Oikonomika
+        PRODUCT_BUNDLE_IDENTIFIER: com.andrewfilipp.oikonomika
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_KEY_CFBundleDisplayName: Οικονομικά
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
+        INFOPLIST_KEY_NSFaceIDUsageDescription: Για να ξεκλειδώνεις τα οικονομικά σου με Face ID.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+schemes:
+  Oikonomika:
+    build:
+      targets:
+        Oikonomika: all
+    test:
+      targets:
+        - package: SpendingCore/SpendingCoreTests

@@ -37,6 +37,11 @@ def png(path, size, ss=3):
     with open(path, 'wb') as f:
         f.write(data)
 
-out = sys.argv[1]
-for name, size in [('icon-192.png', 192), ('apple-touch-icon.png', 180), ('icon-512.png', 512)]:
-    png(os.path.join(out, name), size)
+# usage: make-icons.py <dir>            → web icons
+#        make-icons.py <file.png> <size> → a single icon (e.g. the 1024px iOS icon)
+if len(sys.argv) == 3:
+    png(sys.argv[1], int(sys.argv[2]), ss=2)
+else:
+    out = sys.argv[1]
+    for name, size in [('icon-192.png', 192), ('apple-touch-icon.png', 180), ('icon-512.png', 512)]:
+        png(os.path.join(out, name), size)
