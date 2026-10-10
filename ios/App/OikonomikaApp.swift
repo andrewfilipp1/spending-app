@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 struct RootView: View {
     @Environment(Store.self) private var store
+    @Environment(Router.self) private var router
     @Environment(LockManager.self) private var lock
     @Environment(\.scenePhase) private var phase
 
@@ -57,6 +58,12 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.2), value: lock.isLocked)
         .task {
             store.loadIfNeeded()
+            #if DEBUG
+            if Demo.enabled {
+                if store.data.purchases.isEmpty { store.replaceAll(with: Demo.data()) }
+                if let tab = Demo.tab { router.tab = tab }
+            }
+            #endif
             lock.lockOnLaunch(enabled: store.data.settings.lockEnabled)
             Notifier.shared.dataChanged(store)
         }
