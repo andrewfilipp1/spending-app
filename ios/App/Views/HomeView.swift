@@ -65,6 +65,10 @@ private struct HeroCard: View {
                     ? "Το \(Self.basis[allowance.kind]!) budget έχει ήδη εξαντληθεί"
                     : "Ξόδεψες \(Fmt.money(spent)) από \(Fmt.money(allowed)) · βάσει \(Self.basis[allowance.kind]!) budget")
                     .font(.footnote).opacity(0.9)
+                if let day = data.settings.budgets.day {
+                    DayBalanceLine(balance: Logic.dayBalance(budget: day, allocs: allocs, today: today, since: data.settings.daySince),
+                                   carry: data.settings.carryOver)
+                }
             } else {
                 Text("Ξόδεψες σήμερα").font(.subheadline).opacity(0.9)
                 Text(Fmt.money(spent)).font(.system(size: 42, weight: .heavy, design: .rounded)).monospacedDigit()
@@ -80,6 +84,25 @@ private struct HeroCard: View {
                 : [Color.brand, Color(red: 0.05, green: 0.45, blue: 0.56)], startPoint: .topLeading, endPoint: .bottomTrailing),
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
+    }
+}
+
+/// How far ahead of (or behind) the daily budget this month is, up to yesterday.
+private struct DayBalanceLine: View {
+    let balance: Int
+    let carry: Bool
+
+    var body: some View {
+        if balance != 0 {
+            let ahead = balance > 0
+            let note = carry ? (ahead ? " · προστέθηκαν στο σήμερα" : " · αφαιρέθηκαν από το σήμερα") : ""
+            Text("\(ahead ? "🐷 " : "")Αυτόν τον μήνα είσαι **\(ahead ? "+" : "−")\(Fmt.money(abs(balance)))** \(ahead ? "κάτω από" : "πάνω από") το ημερήσιο budget\(note)")
+                .font(.footnote)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.top, 6)
+        }
     }
 }
 

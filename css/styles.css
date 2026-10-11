@@ -245,6 +245,7 @@ main {
 .hero-label { font-size: 0.95rem; opacity: 0.9; }
 .hero-amount { font-size: 2.6rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
 .hero-sub { font-size: 0.85rem; opacity: 0.9; margin-top: 8px; }
+.hero-balance { font-size: 0.85rem; margin-top: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.16); }
 .hero .bar.light { background: rgb(255 255 255 / 25%); }
 .hero .bar.light .bar-fill { background: #fff; }
 .hero-link { border: 0; background: rgb(255 255 255 / 18%); color: #fff; border-radius: 10px; padding: 8px 12px; margin-top: 8px; font-weight: 600; }
@@ -355,6 +356,10 @@ button.catbar.selected { background: var(--surface-2); }
 
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .setting-row:last-of-type { border-bottom: 0; }
+.setting-row .toggle { flex: none; width: 46px; height: 28px; margin: 0; appearance: none; border-radius: 999px; background: var(--border); position: relative; cursor: pointer; transition: background 0.15s; }
+.setting-row .toggle::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: transform 0.15s; }
+.setting-row .toggle:checked { background: var(--accent); }
+.setting-row .toggle:checked::after { transform: translateX(18px); }
 .setting-row select { width: auto; min-height: 38px; padding: 6px 10px; }
 .money-input { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 10px; padding: 0 10px; background: var(--surface); }
 .money-input input { width: 92px; border: 0; background: none; padding: 8px 0; text-align: right; outline: none; font-variant-numeric: tabular-nums; }

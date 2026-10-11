@@ -153,6 +153,21 @@ export function dailyAllowance(budget, allocs, kind, ref, weekStart = 1) {
   return Math.floor((budget - before - after) / daysLeft);
 }
 
+// Days with a daily budget before this date (the feature's release) are not counted,
+// so earlier days without a budget do not show up as savings.
+export const CARRY_START = '2026-10-11';
+
+// Daily budget minus actual spending, from the start of the month (or `since`) up to yesterday.
+// Positive = left unspent (carried into today), negative = overspent.
+export function dayBalance(budget, allocs, ref, since = CARRY_START) {
+  const start = maxDate(maxDate(since || CARRY_START, CARRY_START), ref.slice(0, 8) + '01');
+  const end = addDays(ref, -1);
+  if (start > end) return 0;
+  let spent = 0;
+  for (const a of allocs) if (a.date >= start && a.date <= end) spent += a.cents;
+  return budget * (daysBetween(start, end) + 1) - spent;
+}
+
 // ---------- Apple Pay / clipboard parsing ----------
 
 // Accepts text like "€12,50;Lidl", "Lidl\n12,50 €", "12.50 EUR | Shell"

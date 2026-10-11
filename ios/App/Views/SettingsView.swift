@@ -86,6 +86,10 @@ struct SettingsView: View {
     private var budgetSection: some View {
         Section {
             ForEach(PeriodKind.allCases) { BudgetField(kind: $0) }
+            Toggle(isOn: binding(\.carryOver)) {
+                Text("Μεταφορά υπολοίπου ημέρας")
+                Text("Ό,τι δεν ξοδεύεις μια μέρα (ή ξοδεύεις παραπάνω) περνά στην επόμενη, μέσα στον μήνα")
+            }
             Picker("Η εβδομάδα ξεκινά", selection: binding(\.weekStart)) {
                 Text("Δευτέρα").tag(1)
                 Text("Κυριακή").tag(0)
@@ -342,7 +346,13 @@ private struct BudgetField: View {
         if t.isEmpty {
             if current != nil { store.update { $0.settings.budgets[kind] = nil } }
         } else if let c = Money.toCents(t), c >= 0 {
-            if c != current { store.update { $0.settings.budgets[kind] = c } }
+            if c != current {
+                store.update { d in
+                    // A new daily budget starts counting savings from today.
+                    if kind == .day && current == nil { d.settings.daySince = store.today }
+                    d.settings.budgets[kind] = c
+                }
+            }
             text = Money.inputText(c)
         } else {
             text = Money.inputText(current)

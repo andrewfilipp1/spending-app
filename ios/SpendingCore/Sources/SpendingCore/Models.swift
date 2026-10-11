@@ -54,6 +54,10 @@ public struct Settings: Codable, Equatable, Sendable {
     public var reminderMinutes = 21 * 60
     public var budgetAlerts = true
     public var alertsSent: [String] = []
+    /// Unspent (or overspent) daily budget moves to the next day, within the month.
+    public var carryOver = true
+    /// Day the daily budget was first set; earlier days do not count as savings.
+    public var daySince: String?
 
     public init() {}
 
@@ -68,6 +72,8 @@ public struct Settings: Codable, Equatable, Sendable {
         reminderMinutes = (try? c.decodeIfPresent(Int.self, forKey: .reminderMinutes)) ?? 21 * 60
         budgetAlerts = (try? c.decodeIfPresent(Bool.self, forKey: .budgetAlerts)) ?? true
         alertsSent = (try? c.decodeIfPresent([String].self, forKey: .alertsSent)) ?? []
+        carryOver = (try? c.decodeIfPresent(Bool.self, forKey: .carryOver)) ?? true
+        daySince = (try? c.decodeIfPresent(String.self, forKey: .daySince)) ?? nil
     }
 }
 
@@ -274,6 +280,7 @@ public struct AppData: Codable, Equatable, Sendable {
         d.settings.autoLockSec = [0, 60, 300, 900].contains(s.autoLockSec) ? s.autoLockSec : 60
         d.settings.reminderMinutes = min(max(s.reminderMinutes, 0), 24 * 60 - 1)
         d.settings.alertsSent = Array(s.alertsSent.suffix(60))
+        if let since = s.daySince, since.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) == nil { d.settings.daySince = nil }
         for k in PeriodKind.allCases {
             if let v = s.budgets[k], v < 0 || v >= 100_000_000_000 { d.settings.budgets[k] = nil }
         }

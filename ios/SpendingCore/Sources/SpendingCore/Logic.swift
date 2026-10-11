@@ -218,6 +218,20 @@ public enum Logic {
         return Int((Double(rest) / Double(daysLeft)).rounded(.down))
     }
 
+    /// Days with a daily budget before this date (the feature's release) are not counted,
+    /// so earlier days without a budget do not show up as savings. Same as the web app.
+    public static let carryStart = "2026-10-11"
+
+    /// Daily budget minus actual spending, from the start of the month (or `since`) up to yesterday.
+    /// Positive = left unspent (carried into today), negative = overspent.
+    public static func dayBalance(budget: Int, allocs: [Alloc], today: String, since: String? = nil) -> Int {
+        let start = max(max(since ?? carryStart, carryStart), String(today.prefix(8)) + "01")
+        let end = Days.add(today, -1)
+        guard start <= end else { return 0 }
+        let spent = sum(allocs.filter { $0.date >= start && $0.date <= end })
+        return budget * (Days.between(start, end) + 1) - spent
+    }
+
     public struct Allowance: Equatable, Sendable {
         public let cents: Int
         public let kind: PeriodKind
@@ -227,7 +241,10 @@ public enum Logic {
     public static func todayAllowance(_ data: AppData, allocs: [Alloc], today: String) -> Allowance? {
         let s = data.settings
         var opts: [Allowance] = []
-        if let d = s.budgets.day { opts.append(Allowance(cents: d, kind: .day)) }
+        if let d = s.budgets.day {
+            let carried = s.carryOver ? dayBalance(budget: d, allocs: allocs, today: today, since: s.daySince) : 0
+            opts.append(Allowance(cents: d + carried, kind: .day))
+        }
         for k in [PeriodKind.week, .month, .year] {
             if let b = s.budgets[k] {
                 opts.append(Allowance(cents: dailyAllowance(budget: b, allocs: allocs, kind: k, today: today, weekStart: s.weekStart), kind: k))

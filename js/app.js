@@ -139,6 +139,8 @@ function sanitize(raw) {
     dailyReminder: rs.dailyReminder === true,
     reminderMinutes: int(rs.reminderMinutes, 0, 1439, 21 * 60),
     budgetAlerts: rs.budgetAlerts !== false,
+    carryOver: rs.carryOver !== false,
+    daySince: isISODate(rs.daySince) ? rs.daySince : null,
     alertsSent: (Array.isArray(rs.alertsSent) ? rs.alertsSent : []).filter((k) => typeof k === 'string').slice(-60).map((k) => k.slice(0, 80)),
   };
   let categories = Array.isArray(raw.categories)
@@ -487,7 +489,8 @@ function homeHero(allocs) {
   const t = L.today();
   const spentToday = L.sum(allocs.filter((a) => a.date === t));
   const opts = [];
-  if (s.budgets.day != null) opts.push({ cents: s.budgets.day, kind: 'day' });
+  const balance = s.budgets.day != null ? L.dayBalance(s.budgets.day, allocs, t, s.daySince) : 0;
+  if (s.budgets.day != null) opts.push({ cents: s.budgets.day + (s.carryOver ? balance : 0), kind: 'day' });
   for (const k of ['week', 'month', 'year']) {
     if (s.budgets[k] != null) opts.push({ cents: L.dailyAllowance(s.budgets[k], allocs, k, t, s.weekStart), kind: k });
   }
@@ -510,7 +513,17 @@ function homeHero(allocs) {
     <div class="hero-sub">${best.cents <= 0
       ? `Το ${KIND_LABEL[best.kind].toLowerCase()} budget έχει ήδη εξαντληθεί`
       : `Ξόδεψες ${money(spentToday)} από ${money(allowance)} · βάσει ${BASIS[best.kind]}`}</div>
+    ${s.budgets.day != null ? dayBalanceLine(balance, s.carryOver) : ''}
   </section>`;
+}
+
+// How far ahead of (or behind) the daily budget this month is, up to yesterday.
+function dayBalanceLine(balance, carry) {
+  if (balance === 0) return '';
+  const ahead = balance > 0;
+  const note = carry ? (ahead ? ' · προστέθηκαν στο σήμερα' : ' · αφαιρέθηκαν από το σήμερα') : '';
+  return `<div class="hero-balance">${ahead ? '🐷 Αυτόν τον μήνα είσαι' : 'Αυτόν τον μήνα είσαι'}
+    <strong>${ahead ? '+' : '−'}${money(Math.abs(balance))}</strong> ${ahead ? 'κάτω από' : 'πάνω από'} το ημερήσιο budget${note}</div>`;
 }
 
 function welcome() {
@@ -777,6 +790,8 @@ function renderSettings() {
     <p class="muted small">Άφησε κενό ό,τι δεν χρειάζεσαι. Το «Διαθέσιμα σήμερα» βγαίνει από το πιο αυστηρό budget.</p>
     ${KINDS.map((k) => `<label class="setting-row"><span>${KIND_LABEL[k]}</span>
       <span class="money-input"><input inputmode="decimal" data-change="budget" data-kind="${k}" value="${L.centsToInput(s.budgets[k])}" placeholder="—" autocomplete="off"><span>€</span></span></label>`).join('')}
+    <label class="setting-row"><span>Μεταφορά υπολοίπου ημέρας<br><span class="muted small">Ό,τι δεν ξοδεύεις μια μέρα (ή ξοδεύεις παραπάνω) περνά στην επόμενη, μέσα στον μήνα</span></span>
+      <input type="checkbox" class="toggle" data-change="carry" ${s.carryOver ? 'checked' : ''}></label>
     <label class="setting-row"><span>Η εβδομάδα ξεκινά</span>
       <select data-change="weekstart"><option value="1" ${s.weekStart === 1 ? 'selected' : ''}>Δευτέρα</option><option value="0" ${s.weekStart === 0 ? 'selected' : ''}>Κυριακή</option></select></label>
   </section>
@@ -943,10 +958,16 @@ const changes = {
       el.value = L.centsToInput(S().budgets[el.dataset.kind]);
       return;
     }
+    // A new daily budget starts counting savings from today.
+    if (el.dataset.kind === 'day' && cents != null && S().budgets.day == null) S().daySince = L.today();
     S().budgets[el.dataset.kind] = cents;
     el.value = L.centsToInput(cents);
     save();
     toast('Αποθηκεύτηκε');
+  },
+  carry: (el) => {
+    S().carryOver = el.checked;
+    save();
   },
   weekstart: (el) => {
     S().weekStart = Number(el.value);

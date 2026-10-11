@@ -115,3 +115,16 @@ test('mergeData: a fresh device adopts the account data on ties', () => {
   assert.deepEqual(m.categories.map((c) => c.id), ['fuel', 'other']);
   assert.equal(L.canon({ a: 1, b: null, c: [1, { z: 1, y: 2 }] }), '{"a":1,"c":[1,{"y":2,"z":1}]}');
 });
+
+test('dayBalance: unspent and overspent days carry within the month, from CARRY_START', () => {
+  const a = (date, cents) => ({ date, cents });
+  // 10 € a day; 12-14 Oct: spent 8, 0, 13 → +2 +10 -3 = +9 by the 15th
+  const allocs = [a('2026-10-12', 800), a('2026-10-14', 1300), a('2026-10-15', 500), a('2026-10-10', 9999)];
+  assert.equal(L.dayBalance(1000, allocs, '2026-10-15', '2026-10-12'), 900);
+  // Days before CARRY_START (11 Oct) never count, even if `since` is earlier
+  assert.equal(L.dayBalance(1000, allocs, '2026-10-12', '2026-10-01'), 1000);
+  // First day: nothing carried yet
+  assert.equal(L.dayBalance(1000, allocs, '2026-10-12', '2026-10-12'), 0);
+  // A new month starts from zero
+  assert.equal(L.dayBalance(1000, [a('2026-11-01', 400)], '2026-11-02', '2026-10-12'), 600);
+});

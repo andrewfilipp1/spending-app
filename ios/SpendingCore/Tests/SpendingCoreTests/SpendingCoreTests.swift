@@ -202,3 +202,20 @@ private func pur(_ id: String, _ cents: Int, updated: Double = 0) -> Purchase {
     let m = SyncMerge.merge(local: AppData(), remote: remote, now: 1)
     #expect(m.settings.budgets.month == 5000)
 }
+
+@Test func dayBalanceMatchesWebApp() {
+    let a = { (date: String, cents: Int) in Alloc(date: date, cents: cents, cat: "other", name: "x", pid: "p") }
+    // 10 € a day; 12-14 Oct: spent 8, 0, 13 → +2 +10 -3 = +9 by the 15th
+    let allocs = [a("2026-10-12", 800), a("2026-10-14", 1300), a("2026-10-15", 500), a("2026-10-10", 9999)]
+    #expect(Logic.dayBalance(budget: 1000, allocs: allocs, today: "2026-10-15", since: "2026-10-12") == 900)
+    #expect(Logic.dayBalance(budget: 1000, allocs: allocs, today: "2026-10-12", since: "2026-10-01") == 1000)
+    #expect(Logic.dayBalance(budget: 1000, allocs: allocs, today: "2026-10-12", since: "2026-10-12") == 0)
+    #expect(Logic.dayBalance(budget: 1000, allocs: [a("2026-11-01", 400)], today: "2026-11-02", since: "2026-10-12") == 600)
+
+    var data = AppData()
+    data.settings.budgets.day = 1000
+    data.settings.daySince = "2026-10-12"
+    #expect(Logic.todayAllowance(data, allocs: allocs, today: "2026-10-15")?.cents == 1900)
+    data.settings.carryOver = false
+    #expect(Logic.todayAllowance(data, allocs: allocs, today: "2026-10-15")?.cents == 1000)
+}
