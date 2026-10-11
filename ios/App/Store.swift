@@ -13,6 +13,9 @@ final class Store {
     var errorMessage: String?
     /// Bumped on every local change; lets sync notice edits made while it was running.
     private(set) var changes = 0
+    /// Today's date. Views read it from here so they redraw when the day changes
+    /// (at midnight, or when the app comes back from the background the next day).
+    private(set) var today = Days.today()
     /// The data as last written, to detect what changed (for sync).
     private var lastSaved: AppData?
 
@@ -21,6 +24,22 @@ final class Store {
     private var fileURL: URL { dir.appendingPathComponent("data.json") }
     // Payments logged by Shortcuts while the main file is unavailable (device locked).
     private var inboxURL: URL { dir.appendingPathComponent("inbox.json") }
+
+    init() {
+        for name: Notification.Name in [.NSCalendarDayChanged, .NSSystemClockDidChange, .NSSystemTimeZoneDidChange] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshDay() }
+            }
+        }
+    }
+
+    /// Picks up a new day; reschedules reminders and alerts for it.
+    func refreshDay() {
+        let now = Days.today()
+        guard now != today else { return }
+        today = now
+        Notifier.shared.dataChanged(self)
+    }
 
     func loadIfNeeded() {
         if !loaded { load() }

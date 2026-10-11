@@ -31,7 +31,8 @@ struct StatsView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Στατιστικά")
             .toolbar { ToolbarItem(placement: .primaryAction) { AddButton() } }
-            .onChange(of: kind) { ref = Days.today(); selected = nil }
+            .onChange(of: kind) { ref = store.today; selected = nil }
+            .onChange(of: store.today) { old, new in if ref == old { ref = new } } // follow the new day
             .onChange(of: ref) { selected = nil }
         }
     }
@@ -74,7 +75,7 @@ struct StatsView: View {
     private var content: some View {
         let data = store.data
         let p = period
-        let today = Days.today()
+        let today = store.today
         let all = Logic.allocations(data.purchases, mode: mode)
         let inPeriod = all.filter { p.contains($0.date) }
         let filtered = inPeriod.filter { category == nil || $0.cat == category }

@@ -1,7 +1,7 @@
 // Service worker: makes the app work offline and delivers updates.
 // A new VERSION creates a new cache; the page shows "update available" and the
 // user decides when to switch, so nothing reloads in the middle of typing.
-const VERSION = '1.2.1';
+const VERSION = '1.2.2';
 const CACHE = `spending-app-${VERSION}`;
 const ASSETS = [
   './',

@@ -76,6 +76,7 @@ struct RootView: View {
             case .active:
                 store.loadIfNeeded()
                 store.mergeInbox()
+                store.refreshDay()
                 lock.becameActive(settings: store.data.settings)
                 Notifier.shared.dataChanged(store)
                 SyncManager.shared.loadAccount()

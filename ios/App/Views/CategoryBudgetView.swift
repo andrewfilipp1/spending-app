@@ -104,7 +104,7 @@ struct CategoryBudgetView: View {
     }
 
     private var currentStatus: CategoryBudgetStatus? {
-        Logic.categoryBudgets(store.data, allocs: Logic.allocations(store.data.purchases), today: Days.today())
+        Logic.categoryBudgets(store.data, allocs: Logic.allocations(store.data.purchases), today: store.today)
             .first { $0.category.id == categoryID }
     }
 

@@ -56,6 +56,7 @@ const state = {
   key: null, // AES key while unlocked (non-extractable)
   meta: null, // { schema, encrypted, salt?, iterations?, numeric? }
   tab: 'home',
+  day: L.today(), // the day the screen was drawn for
   stats: { kind: 'month', ref: L.today(), mode: 'spread', cat: null, sel: null },
   history: { q: '', cat: '' },
   hiddenAt: null,
@@ -366,7 +367,10 @@ function bindChrome() {
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) syncNow();
+    if (!document.hidden) {
+      checkDay();
+      syncNow();
+    }
     if (!state.meta?.encrypted || !state.data) return;
     if (document.hidden) {
       state.hiddenAt = Date.now();
@@ -378,6 +382,17 @@ function bindChrome() {
 }
 
 window.addEventListener('online', () => syncNow());
+setInterval(checkDay, 60 * 1000);
+
+// Redraws when the date changes (midnight, or reopening the app the next day).
+function checkDay() {
+  const t = L.today();
+  if (t === state.day) return;
+  if (state.stats.ref === state.day) state.stats.ref = t;
+  state.day = t;
+  const typing = $('#view')?.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (state.data && !typing) render();
+}
 
 function go(tab) {
   state.tab = tab;
@@ -387,6 +402,7 @@ function go(tab) {
 
 function render() {
   if (!state.data) return;
+  state.day = L.today();
   const views = { home: renderHome, history: renderHistory, stats: renderStats, settings: renderSettings };
   const view = $('#view');
   view.innerHTML = views[state.tab]();

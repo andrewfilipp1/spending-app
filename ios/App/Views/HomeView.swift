@@ -7,7 +7,7 @@ struct HomeView: View {
 
     var body: some View {
         let data = store.data
-        let today = Days.today()
+        let today = store.today
         let allocs = Logic.allocations(data.purchases)
 
         NavigationStack {
