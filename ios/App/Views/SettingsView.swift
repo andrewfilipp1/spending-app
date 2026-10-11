@@ -24,6 +24,7 @@ struct SettingsView: View {
                 AccountSection()
                 budgetSection
                 categoryBudgetSection
+                itemsSection
                 categoriesSection
                 notificationsSection
                 securitySection
@@ -126,6 +127,23 @@ struct SettingsView: View {
             Text("Budget ανά κατηγορία")
         } footer: {
             Text("Όρισε ξεχωριστό όριο ανά εβδομάδα ή μήνα για κάθε κατηγορία, π.χ. Καύσιμα 60 €/εβδομάδα. Το ✎ δείχνει πόσες φορές το άλλαξες.")
+        }
+    }
+
+    private var itemsSection: some View {
+        let known = ItemHistory.known(store.data.purchases)
+        let dups = ItemHistory.duplicates(known).count
+        return Section {
+            NavigationLink { ItemsView() } label: {
+                HStack {
+                    Label("Ιστορικό ειδών", systemImage: "list.bullet.rectangle")
+                    Spacer()
+                    Text(dups > 0 ? "\(known.count) · ⚠️ \(dups) διπλά" : "\(known.count)")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+        } footer: {
+            Text("Η εφαρμογή θυμάται κάθε είδος: όταν το ξαναγράφεις κρατά την ίδια ονομασία, κατηγορία και τιμή, και σε ρωτά αν μοιάζει με κάτι που υπάρχει ήδη.")
         }
     }
 

@@ -836,6 +836,8 @@ function renderSettings() {
     </div>
   </section>
 
+  ${itemsSection()}
+
   <section class="card">
     <div class="card-head"><h2 class="card-title">Κατηγορίες</h2><button class="link" data-action="new-cat">+ Νέα</button></div>
     <div class="cat-list">
@@ -953,6 +955,7 @@ const actions = {
   'edit-cat': (el) => openCategoryEditor(C().find((c) => c.id === el.dataset.id)),
   'new-cat': () => openCategoryEditor(null),
   'cat-budget': (el) => openCategoryBudget(el.dataset.id),
+  'items': () => openItems(),
   'test-paste': async () => {
     const tx = await readClipboardTransaction();
     if (tx) toast(`Βρέθηκε: ${money(tx.cents)}${tx.merchant ? ` · ${tx.merchant}` : ''}`);
@@ -1048,12 +1051,21 @@ function refreshHistory() {
 
 function openSheet(html, mount, onClose) {
   const d = $('#sheet');
-  if (d.open) d.close();
+  if (d.open) {
+    // Replacing a sheet: finish the old one now. Its close event arrives later, while the new
+    // sheet is open, and is ignored below.
+    const prev = d.onclose;
+    d.onclose = null;
+    d.close();
+    prev?.({ replaced: true });
+  }
   d.innerHTML = html;
   applyStyles(d);
   d.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => closeSheet()));
-  d.onclose = () => {
-    d.innerHTML = '';
+  d.onclose = (e) => {
+    if (d.open) return; // stale event from the replaced sheet
+    if (!e?.replaced) d.innerHTML = '';
+    d.onclose = null;
     onClose?.();
   };
   d.showModal();
@@ -1105,17 +1117,6 @@ function askPasscode({ title, message = '', confirmNew = false }) {
 
 // ---------- purchase editor ----------
 
-function rememberedItems() {
-  const m = new Map();
-  for (const p of [...P()].sort(byNewest)) {
-    for (const i of p.items) {
-      const k = norm(i.name);
-      if (!m.has(k)) m.set(k, { name: i.name, cat: i.cat, cents: i.cents, days: i.days });
-    }
-  }
-  return m;
-}
-
 function guessCat(store) {
   const s = norm(store);
   if (!s) return 'other';
@@ -1145,6 +1146,7 @@ function itemRow(it) {
       <select class="i-days" aria-label="Κατανομή σε ημέρες">${daysOptions(it.days)}</select>
     </div>
     <div class="item-hint"></div>
+    <div class="item-fix" hidden></div>
   </div>`;
 }
 
@@ -1162,7 +1164,9 @@ function openEditor(existing = null, prefill = {}) {
   const newItem = (cat = guessCat(draft.store), cents = null) => ({ id: uid(), name: '', cents, cat, days: 1 });
   if (!draft.items.length) draft.items.push(newItem(guessCat(draft.store), prefill.cents ?? null));
 
-  const memory = rememberedItems();
+  const known = L.knownItems(P());
+  const kept = new Set(); // names the user chose to keep as typed
+  let warned = false;
   const stores = [...new Set([...P()].sort(byNewest).map((p) => p.store).filter(Boolean))].slice(0, 200);
 
   openSheet(`<form class="sheet-form" id="editor" novalidate>
@@ -1178,7 +1182,7 @@ function openEditor(existing = null, prefill = {}) {
         <label class="field grow"><span>Κατάστημα</span><input name="store" list="dl-stores" value="${esc(draft.store)}" placeholder="π.χ. Lidl" autocomplete="off"></label>
       </div>
       <datalist id="dl-stores">${stores.map((s) => `<option value="${esc(s)}"></option>`).join('')}</datalist>
-      <datalist id="dl-items">${[...memory.values()].slice(0, 300).map((i) => `<option value="${esc(i.name)}"></option>`).join('')}</datalist>
+      <datalist id="dl-items">${known.slice(0, 300).map((i) => `<option value="${esc(i.name)}"></option>`).join('')}</datalist>
       <div class="section-title">Προϊόντα</div>
       <div id="items"></div>
       <button type="button" class="btn ghost full" id="addItem">+ Προσθήκη προϊόντος</button>
@@ -1231,23 +1235,50 @@ function openEditor(existing = null, prefill = {}) {
     };
 
     itemsEl.addEventListener('input', update);
+    // Uses the remembered spelling, category and price of a known item.
+    const applyKnown = (row, k) => {
+      row.querySelector('.i-name').value = k.name;
+      row.querySelector('.i-cat').value = C().some((c) => c.id === k.cat) ? k.cat : 'other';
+      const price = row.querySelector('.i-price');
+      if (!price.value.trim()) price.value = L.centsToInput(k.cents);
+      const daysSel = row.querySelector('.i-days');
+      if (daysSel.value === '1' && k.days > 1) daysSel.innerHTML = daysOptions(k.days);
+      showFix(row, null);
+    };
+    const showFix = (row, k) => {
+      const box = row.querySelector('.item-fix');
+      box.hidden = !k;
+      box.innerHTML = k ? `<span>Μήπως εννοείς «<b>${esc(k.name)}</b>»;</span>
+        <button type="button" class="chip fix-yes">Ναι, διόρθωση</button>
+        <button type="button" class="chip fix-no">Όχι, είναι άλλο</button>` : '';
+      box.dataset.name = k ? k.name : '';
+    };
+    // A likely typo of a known item that the user has not answered yet.
+    const pendingFix = (name) => {
+      if (!name || kept.has(L.itemKey(name))) return null;
+      const m = L.matchItem(name, known);
+      return m && !m.exact ? m.item : null;
+    };
+    const checkName = (row) => {
+      const name = row.querySelector('.i-name').value.trim();
+      const m = L.matchItem(name, known);
+      if (m?.exact) applyKnown(row, m.item);
+      else showFix(row, pendingFix(name));
+    };
+
     itemsEl.addEventListener('change', (e) => {
-      if (e.target.classList.contains('i-name')) {
-        const known = memory.get(norm(e.target.value));
-        const row = e.target.closest('.item');
-        if (known) {
-          row.querySelector('.i-cat').value = C().some((c) => c.id === known.cat) ? known.cat : 'other';
-          const price = row.querySelector('.i-price');
-          if (!price.value.trim()) price.value = L.centsToInput(known.cents);
-          const daysSel = row.querySelector('.i-days');
-          if (daysSel.value === '1' && known.days > 1) {
-            daysSel.innerHTML = daysOptions(known.days);
-          }
-        }
-      }
+      if (e.target.classList.contains('i-name')) checkName(e.target.closest('.item'));
       update();
     });
     itemsEl.addEventListener('click', (e) => {
+      const fix = e.target.closest('.fix-yes, .fix-no');
+      if (fix) {
+        const row = fix.closest('.item');
+        if (fix.classList.contains('fix-yes')) applyKnown(row, known.find((k) => k.name === row.querySelector('.item-fix').dataset.name));
+        else { kept.add(L.itemKey(row.querySelector('.i-name').value)); showFix(row, null); }
+        update();
+        return;
+      }
       const btn = e.target.closest('.i-remove');
       if (!btn) return;
       readItems();
@@ -1307,6 +1338,19 @@ function openEditor(existing = null, prefill = {}) {
       const rows = draft.items.filter((i) => i.name || !Number.isNaN(i.cents));
       if (rows.some((i) => !(i.cents > 0))) { toast('Έλεγξε τις τιμές των προϊόντων'); return; }
       if (!rows.length) { toast('Πρόσθεσε τουλάχιστον ένα προϊόν με τιμή'); return; }
+      // Known items keep one spelling; likely typos are asked about once before saving.
+      for (const i of rows) {
+        const m = L.matchItem(i.name, known);
+        if (m?.exact) i.name = m.item.name;
+      }
+      const typos = [...itemsEl.querySelectorAll('.item')].filter((row) => pendingFix(row.querySelector('.i-name').value.trim()));
+      if (typos.length && !warned) {
+        warned = true;
+        typos.forEach((row) => showFix(row, pendingFix(row.querySelector('.i-name').value.trim())));
+        typos[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+        toast('Μοιάζει με είδος που έχεις ήδη. Διάλεξε, ή πάτα ξανά Αποθήκευση.');
+        return;
+      }
       const store = form.store.value.trim().slice(0, 120);
       const purchase = {
         ...draft,
@@ -1398,6 +1442,91 @@ function openCategoryEditor(cat) {
       render();
     });
   });
+}
+
+// ---------- item history ----------
+
+function itemsSection() {
+  const known = L.knownItems(P());
+  const dups = L.duplicateItems(known).length;
+  return `<section class="card">
+    <h2 class="card-title">🧾 Ιστορικό ειδών</h2>
+    <p class="muted small">Η εφαρμογή θυμάται κάθε είδος που έχεις περάσει: όταν το ξαναγράφεις, κρατά την ίδια ονομασία, κατηγορία και τιμή, και σε ρωτά αν μοιάζει με κάτι που υπάρχει ήδη.</p>
+    <button class="btn full" data-action="items">${known.length} είδη${dups ? ` · ⚠️ ${dups} πιθανά διπλά` : ''}</button>
+  </section>`;
+}
+
+function openItems(query = '') {
+  const known = L.knownItems(P());
+  const dups = L.duplicateItems(known);
+  const fmtDate = (d) => L.shortDate(d, d.slice(0, 4) !== L.today().slice(0, 4));
+  const row = (k) => `<button type="button" class="cat-row" data-rename="${esc(k.key)}">
+    <span class="pcard-icon" data-color="${catById(k.cat).color}">${esc(catById(k.cat).emoji)}</span>
+    <span class="grow">${esc(k.name)}<br><span class="muted small">${k.count}× · τελευταία ${money(k.cents)} · ${fmtDate(k.last)}</span></span>
+    <span class="chev">›</span></button>`;
+  openSheet(`<div class="sheet-form">
+    <header class="sheet-head"><span></span><h2>Ιστορικό ειδών</h2><button type="button" class="link strong" data-close>Τέλος</button></header>
+    <div class="sheet-body">
+      ${dups.length ? `<div class="section-title">Πιθανά διπλά (${dups.length})</div>
+        <div class="cat-list">${dups.map((g, i) => `<div class="dup-row">
+          <span class="grow"><strong>${esc(g.name)}</strong><br><span class="muted small">επίσης γραμμένο: ${g.names.map((n) => `«${esc(n.trim())}»`).join(', ')}</span></span>
+          <button type="button" class="btn small" data-merge="${i}">Ένωση</button></div>`).join('')}</div>` : ''}
+      <input class="search" type="search" id="itemSearch" placeholder="Αναζήτηση είδους" value="${esc(query)}" autocomplete="off">
+      <div class="cat-list" id="itemList"></div>
+      <p class="muted small">Πάτα ένα είδος για να αλλάξεις την ονομασία του σε όλες τις αγορές.</p>
+    </div></div>`, (d) => {
+    const list = d.querySelector('#itemList');
+    const search = d.querySelector('#itemSearch');
+    const draw = () => {
+      const q = L.itemKey(search.value);
+      const shown = known.filter((k) => !q || k.key.includes(q));
+      list.innerHTML = shown.length ? shown.map(row).join('') : '<p class="muted small">Κανένα είδος.</p>';
+      applyStyles(list);
+    };
+    search.addEventListener('input', draw);
+    draw();
+    d.querySelector('.sheet-body').addEventListener('click', async (e) => {
+      const merge = e.target.closest('[data-merge]');
+      if (merge) {
+        const g = dups[Number(merge.dataset.merge)];
+        const n = L.renameItems(P(), g.names, g.name);
+        await save();
+        toast(`Ενώθηκαν ${n} καταχωρήσεις σε «${g.name}»`);
+        openItems(search.value);
+        render();
+        return;
+      }
+      const ren = e.target.closest('[data-rename]');
+      if (ren) openRenameItem(known.find((k) => k.key === ren.dataset.rename), search.value);
+    });
+  });
+}
+
+function openRenameItem(k, query) {
+  if (!k) return;
+  openSheet(`<form class="sheet-form small-sheet" novalidate>
+    <header class="sheet-head"><button type="button" class="link" data-close>Άκυρο</button>
+      <h2>Είδος</h2><button type="submit" class="link strong">Αποθήκευση</button></header>
+    <div class="sheet-body">
+      <label class="field"><span>Ονομασία</span><input name="name" value="${esc(k.name)}" required autocomplete="off" maxlength="120"></label>
+      <p class="muted small">Αλλάζει σε όλες τις ${k.count} καταχωρήσεις. Αν γράψεις το όνομα άλλου είδους, τα δύο ενώνονται.</p>
+    </div></form>`, (d) => {
+    const f = d.querySelector('form');
+    f.name.focus();
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = f.name.value.trim().slice(0, 120);
+      if (!name) { toast('Δώσε ονομασία'); return; }
+      // Writing another item's name merges into its spelling.
+      const other = L.knownItems(P()).find((o) => o.key === L.itemKey(name) && o.key !== k.key);
+      const to = other ? other.name : name;
+      const n = L.renameItems(P(), Object.keys(k.spellings), to);
+      if (n) await save();
+      if (n) toast(other ? `Ενώθηκε με «${to}»` : 'Αποθηκεύτηκε');
+      openItems(query);
+      render();
+    });
+  }, null);
 }
 
 const perLabel = (p) => (p === 'week' ? '/εβδ.' : '/μήνα');

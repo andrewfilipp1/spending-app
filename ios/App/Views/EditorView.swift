@@ -32,6 +32,10 @@ struct EditorView: View {
     @State private var unexpected: Bool
     @State private var error: String?
     @State private var confirmDelete = false
+    @State private var known: [KnownItem] = []
+    /// Names the user chose to keep as typed (keys).
+    @State private var kept: Set<String> = []
+    @State private var warned = false
     @FocusState private var focus: Field?
 
     init(target: EditorTarget) {
@@ -122,7 +126,12 @@ struct EditorView: View {
             }
             .onChange(of: focus) { old, _ in
                 if old == .store { applyStoreCategory() }
+                if case .name(let id)? = old, let i = items.firstIndex(where: { $0.id == id }),
+                   let m = ItemHistory.match(items[i].name, in: known), m.exact {
+                    apply(m.item, to: $items[i])
+                }
             }
+            .onAppear { known = ItemHistory.known(store.data.purchases) }
             .confirmationDialog("Διαγραφή αυτής της αγοράς;", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Διαγραφή", role: .destructive) {
                     if let id = original?.id { store.delete(id) }
@@ -171,6 +180,19 @@ struct EditorView: View {
                     focus = .price(it.id)
                 }
             }
+        } else if let fix = pendingFix(it.name) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Μήπως εννοείς «\(fix.name)»;").font(.subheadline)
+                HStack {
+                    Button("Ναι, διόρθωση") { apply(fix, to: item) }
+                        .buttonStyle(.borderedProminent)
+                    Button("Όχι, είναι άλλο") { kept.insert(ItemHistory.key(it.name)) }
+                        .buttonStyle(.bordered)
+                }
+                .controlSize(.small)
+            }
+            .padding(.vertical, 4)
+            .listRowBackground(Color.orange.opacity(0.15))
         }
         Picker("Κατηγορία", selection: item.cat) {
             ForEach(store.data.categories) { c in Text("\(c.emoji) \(c.name)").tag(c.id) }
@@ -212,24 +234,22 @@ struct EditorView: View {
         }.prefix(5).map { $0 }
     }
 
-    /// Previously bought items matching what is being typed (latest price and category).
-    private func itemSuggestions(for text: String) -> [Item] {
-        let q = Logic.norm(text)
-        guard q.count >= 1 else { return [] }
-        var seen = Set<String>()
-        var out: [Item] = []
-        for p in store.data.purchases.sorted(by: Purchase.newestFirst) {
-            for i in p.items {
-                let n = Logic.norm(i.name)
-                guard n.contains(q), n != q, seen.insert(n).inserted else { continue }
-                out.append(i)
-                if out.count == 4 { return out }
-            }
-        }
-        return out
+    /// Previously bought items matching what is being typed (most used first), or a likely typo's fix.
+    private func itemSuggestions(for text: String) -> [KnownItem] {
+        let q = ItemHistory.key(text)
+        guard !q.isEmpty else { return [] }
+        let out = known.filter { $0.key.contains(q) && $0.name != text }.prefix(4)
+        if out.isEmpty, let m = ItemHistory.match(text, in: known), !m.exact { return [m.item] }
+        return Array(out)
     }
 
-    private func apply(_ known: Item, to item: Binding<DraftItem>) {
+    /// A known item this name is probably a typo of, unless the user said it is something else.
+    private func pendingFix(_ name: String) -> KnownItem? {
+        guard !kept.contains(ItemHistory.key(name)), let m = ItemHistory.match(name, in: known), !m.exact else { return nil }
+        return m.item
+    }
+
+    private func apply(_ known: KnownItem, to item: Binding<DraftItem>) {
         item.wrappedValue.name = known.name
         if store.data.categories.contains(where: { $0.id == known.cat }) { item.wrappedValue.cat = known.cat }
         if item.wrappedValue.price.trimmingCharacters(in: .whitespaces).isEmpty { item.wrappedValue.price = Money.inputText(known.cents) }
@@ -266,9 +286,18 @@ struct EditorView: View {
     }
 
     private func save() {
+        // Likely typos of known items are asked about once before saving.
+        if !warned, items.contains(where: { pendingFix($0.name) != nil }) {
+            warned = true
+            focus = nil
+            error = "Κάποιο προϊόν μοιάζει με είδος που έχεις ήδη. Διάλεξε «Ναι, διόρθωση» ή «Όχι», ή πάτα ξανά Αποθήκευση για να μείνει όπως είναι."
+            return
+        }
         var out: [Item] = []
         for d in items {
-            let name = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            var name = d.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Known items keep one spelling.
+            if let m = ItemHistory.match(name, in: known), m.exact { name = m.item.name }
             let price = d.price.trimmingCharacters(in: .whitespaces)
             if name.isEmpty && price.isEmpty { continue }
             guard let cents = Money.toCents(price), cents > 0 else {

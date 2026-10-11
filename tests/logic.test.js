@@ -128,3 +128,40 @@ test('dayBalance: unspent and overspent days carry within the month, from CARRY_
   // A new month starts from zero
   assert.equal(L.dayBalance(1000, [a('2026-11-01', 400)], '2026-11-02', '2026-10-12'), 600);
 });
+
+test('item history matches spellings and typos', () => {
+  const ps = [
+    { id: 'a', date: '2026-10-01', items: [{ name: 'Γάλα', cents: 150, cat: 'groceries', days: 1 }] },
+    { id: 'b', date: '2026-10-02', items: [{ name: 'Γάλα', cents: 160, cat: 'groceries', days: 1 }, { name: 'Ψωμί', cents: 90, cat: 'groceries', days: 1 }] },
+    { id: 'c', date: '2026-10-03', items: [{ name: 'γαλα', cents: 155, cat: 'groceries', days: 1 }, { name: 'Τυρί', cents: 400, cat: 'groceries', days: 1 }] },
+    { id: 'd', date: '2026-10-04', items: [{ name: 'Μπανάνες', cents: 200, cat: 'groceries', days: 1 }, { name: 'Μπανανες ', cents: 210, cat: 'groceries', days: 1 }, { name: 'Μπαννάες', cents: 190, cat: 'groceries', days: 1 }] },
+  ];
+  assert.equal(L.itemKey('  Γάλα,  φρέσκο '), 'γαλα φρεσκο');
+  assert.equal(L.itemKey('Χυμός'), L.itemKey('χυμοσ'));
+  const known = L.knownItems(ps);
+  const milk = known.find((k) => k.key === 'γαλα');
+  assert.equal(milk.name, 'Γάλα');
+  assert.equal(milk.count, 3);
+  assert.equal(milk.cents, 155); // latest price
+
+  assert.deepEqual(L.matchItem('ΓΑΛΑ', known), { item: milk, exact: true });
+  assert.equal(L.matchItem('Γλάα', known).item.name, 'Γάλα'); // swapped letters
+  assert.equal(L.matchItem('Γάλλα', known).item.name, 'Γάλα'); // extra letter
+  assert.equal(L.matchItem('Γάλα', known).exact, true);
+  assert.equal(L.matchItem('Τυρι', known).exact, true);
+  assert.equal(L.matchItem('Τυρόπιτα', known), null);
+  assert.equal(L.matchItem('Ρύζι', known), null);
+  assert.equal(L.matchItem('Μπαμιές', known), null);
+  assert.equal(L.matchItem('', known), null);
+
+  assert.equal(L.typoDistance('abcd', 'abdc'), 1);
+  assert.equal(L.typoDistance('kitten', 'sitting'), 3);
+
+  const dups = L.duplicateItems(known);
+  assert.deepEqual(dups.map((g) => g.name), ['Γάλα', 'Μπανάνες']);
+  assert.deepEqual(dups[1].names.sort(), ['Μπανανες ', 'Μπαννάες'].sort());
+
+  const copy = structuredClone(ps);
+  assert.equal(L.renameItems(copy, dups[1].names, 'Μπανάνες'), 2);
+  assert.deepEqual(copy[3].items.map((i) => i.name), ['Μπανάνες', 'Μπανάνες', 'Μπανάνες']);
+});

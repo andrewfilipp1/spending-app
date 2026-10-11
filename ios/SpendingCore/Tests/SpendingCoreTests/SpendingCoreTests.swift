@@ -240,3 +240,42 @@ private func pur(_ id: String, _ cents: Int, updated: Double = 0) -> Purchase {
     #expect(decoded.purchases.filter(\.unexpected).count == 1)
     #expect(decoded.settings.unexpectedBudget == 10000)
 }
+
+@Test func itemHistoryMatchesWebApp() {
+    func p(_ id: String, _ date: String, _ items: [(String, Int)]) -> Purchase {
+        Purchase(id: id, date: date, items: items.map { Item(name: $0.0, cents: $0.1, cat: "groceries") })
+    }
+    var ps = [
+        p("a", "2026-10-01", [("Γάλα", 150)]),
+        p("b", "2026-10-02", [("Γάλα", 160), ("Ψωμί", 90)]),
+        p("c", "2026-10-03", [("γαλα", 155), ("Τυρί", 400)]),
+        p("d", "2026-10-04", [("Μπανάνες", 200), ("Μπανανες ", 210), ("Μπαννάες", 190)]),
+    ]
+    #expect(ItemHistory.key("  Γάλα,  φρέσκο ") == "γαλα φρεσκο")
+    #expect(ItemHistory.key("Χυμός") == ItemHistory.key("χυμοσ"))
+    let known = ItemHistory.known(ps)
+    let milk = known.first { $0.key == "γαλα" }!
+    #expect(milk.name == "Γάλα")
+    #expect(milk.count == 3)
+    #expect(milk.cents == 155)
+
+    #expect(ItemHistory.match("ΓΑΛΑ", in: known)?.exact == true)
+    #expect(ItemHistory.match("Γλάα", in: known)?.item.name == "Γάλα")
+    #expect(ItemHistory.match("Γλάα", in: known)?.exact == false)
+    #expect(ItemHistory.match("Γάλλα", in: known)?.item.name == "Γάλα")
+    #expect(ItemHistory.match("Τυρι", in: known)?.exact == true)
+    #expect(ItemHistory.match("Τυρόπιτα", in: known) == nil)
+    #expect(ItemHistory.match("Ρύζι", in: known) == nil)
+    #expect(ItemHistory.match("Μπαμιές", in: known) == nil)
+    #expect(ItemHistory.match("", in: known) == nil)
+
+    #expect(ItemHistory.typoDistance("abcd", "abdc") == 1)
+    #expect(ItemHistory.typoDistance("kitten", "sitting", max: 3) == 3)
+
+    let dups = ItemHistory.duplicates(known)
+    #expect(dups.map(\.name) == ["Γάλα", "Μπανάνες"])
+    #expect(dups[1].names.sorted() == ["Μπανανες ", "Μπαννάες"].sorted())
+
+    #expect(ItemHistory.rename(&ps, from: dups[1].names, to: "Μπανάνες") == 2)
+    #expect(ps[3].items.map(\.name) == ["Μπανάνες", "Μπανάνες", "Μπανάνες"])
+}

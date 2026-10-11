@@ -219,6 +219,109 @@ export function categoryBudgets(categories, allocs, today, weekStart = 1) {
   });
 }
 
+// ---------- item history ----------
+
+// Key that ignores case, accents, final sigma, punctuation and extra spaces: "Γάλα  ", "γαλα" → "γαλα".
+export const itemKey = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  .replace(/ς/g, 'σ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+// Every item name used so far, one per key: the most used spelling, with the latest price/category.
+export function knownItems(purchases) {
+  const map = new Map();
+  const sorted = [...purchases].sort((a, b) => (a.date === b.date ? (b.createdAt || 0) - (a.createdAt || 0) : a.date < b.date ? 1 : -1));
+  for (const p of sorted) {
+    for (const i of p.items) {
+      const key = itemKey(i.name);
+      if (!key) continue;
+      let k = map.get(key);
+      if (!k) {
+        k = { key, name: i.name, count: 0, spellings: {}, cat: i.cat, cents: i.cents, days: i.days, last: p.date };
+        map.set(key, k);
+      }
+      k.count++;
+      k.spellings[i.name] = (k.spellings[i.name] || 0) + 1;
+    }
+  }
+  for (const k of map.values()) {
+    // most used spelling; ties keep the newest (inserted first)
+    k.name = Object.entries(k.spellings).reduce((best, e) => (e[1] > best[1] ? e : best))[0];
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : -1));
+}
+
+// Edit distance with swapped neighbours counting as one typo (optimal string alignment).
+export function typoDistance(a, b, max = 2) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev2 = null;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (prev2 && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, prev2[j - 2] + 1);
+      cur.push(v);
+      rowMin = Math.min(rowMin, v);
+    }
+    if (rowMin > max) return max + 1;
+    prev2 = prev;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// How many typos a name of this length may contain and still count as the same item.
+const typoLimit = (n) => (n < 4 ? 0 : n < 8 ? 1 : 2);
+
+// The known item this name means: { item, exact } or null.
+// exact: same key (only the spelling differs). Otherwise a likely typo of a known item.
+export function matchItem(name, known) {
+  const key = itemKey(name);
+  if (!key) return null;
+  const same = known.find((k) => k.key === key);
+  if (same) return { item: same, exact: true };
+  const limit = typoLimit(key.length);
+  let best = null;
+  let bestD = limit + 1;
+  for (const k of known) {
+    if (typoLimit(k.key.length) === 0) continue;
+    const d = typoDistance(key, k.key, limit);
+    if (d < bestD || (d === bestD && best && k.count > best.count)) { best = k; bestD = d; }
+  }
+  return best && bestD <= limit ? { item: best, exact: false } : null;
+}
+
+// Groups of item names that are probably the same thing, to merge in the item history.
+export function duplicateItems(known) {
+  const groups = [];
+  const used = new Set();
+  for (const k of known) { // most used first, so it becomes the suggested name
+    if (used.has(k.key)) continue;
+    const others = Object.keys(k.spellings).filter((s) => s !== k.name);
+    const similar = known.filter((o) => o !== k && !used.has(o.key) && typoLimit(o.key.length) > 0
+      && typoDistance(k.key, o.key, Math.min(typoLimit(k.key.length), typoLimit(o.key.length))) <= Math.min(typoLimit(k.key.length), typoLimit(o.key.length)));
+    if (!others.length && !similar.length) continue;
+    used.add(k.key);
+    for (const o of similar) used.add(o.key);
+    const names = [...others, ...similar.flatMap((o) => Object.keys(o.spellings))];
+    groups.push({ name: k.name, names, count: k.count + similar.reduce((s, o) => s + o.count, 0) });
+  }
+  return groups;
+}
+
+// Renames every item whose name is in `from` (exact spellings) to `to`. Returns how many changed.
+export function renameItems(purchases, from, to) {
+  const set = new Set(from);
+  let n = 0;
+  for (const p of purchases) {
+    for (const i of p.items) {
+      if (set.has(i.name) && i.name !== to) { i.name = to; n++; }
+    }
+  }
+  return n;
+}
+
 // ---------- sync: change stamps and merging ----------
 
 // Stable JSON (sorted keys, undefined ≈ null) for comparing data from different devices.

@@ -400,3 +400,157 @@ public extension Purchase {
         a.date == b.date ? a.createdAt > b.createdAt : a.date > b.date
     }
 }
+
+// MARK: - Item history (same rules as js/logic.js)
+
+public struct KnownItem: Sendable, Identifiable {
+    public var id: String { key }
+    public let key: String
+    /// The most used spelling.
+    public var name: String
+    public var count: Int
+    /// Every spelling used, with how many times.
+    public var spellings: [String: Int]
+    /// Latest category, price, days and date.
+    public let cat: String
+    public let cents: Int
+    public let days: Int
+    public let last: String
+}
+
+public struct DuplicateItems: Sendable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let names: [String]
+    public let count: Int
+}
+
+public enum ItemHistory {
+    /// Ignores case, accents, final sigma, punctuation and extra spaces: "Γάλα  ", "γαλα" → "γαλα".
+    public static func key(_ s: String) -> String {
+        let folded = s.decomposedStringWithCanonicalMapping.unicodeScalars
+            .filter { !(0x300...0x36F).contains($0.value) }
+        let lower = String(String.UnicodeScalarView(folded)).lowercased().replacingOccurrences(of: "ς", with: "σ")
+        var out = ""
+        var space = false
+        for ch in lower {
+            if ch.isLetter || ch.isNumber {
+                if space && !out.isEmpty { out.append(" ") }
+                out.append(ch)
+                space = false
+            } else {
+                space = true
+            }
+        }
+        return out
+    }
+
+    public static func known(_ purchases: [Purchase]) -> [KnownItem] {
+        var map: [String: KnownItem] = [:]
+        var order: [String] = []
+        var seen: [String: [String]] = [:] // spellings, newest first
+        for p in purchases.sorted(by: Purchase.newestFirst) {
+            for i in p.items {
+                let k = key(i.name)
+                guard !k.isEmpty else { continue }
+                if map[k] == nil {
+                    map[k] = KnownItem(key: k, name: i.name, count: 0, spellings: [:], cat: i.cat, cents: i.cents, days: i.days, last: p.date)
+                    order.append(k)
+                }
+                map[k]!.count += 1
+                if map[k]!.spellings[i.name] == nil { seen[k, default: []].append(i.name) }
+                map[k]!.spellings[i.name, default: 0] += 1
+            }
+        }
+        var list: [KnownItem] = []
+        for k in order {
+            var item = map[k]!
+            // most used spelling; ties keep the newest
+            let names = seen[k] ?? [item.name]
+            item.name = names.reduce(names[0]) { best, s in (item.spellings[s] ?? 0) > (item.spellings[best] ?? 0) ? s : best }
+            list.append(item)
+        }
+        // stable: most used first, then newest
+        return list.enumerated().sorted { a, b in
+            if a.element.count != b.element.count { return a.element.count > b.element.count }
+            if a.element.last != b.element.last { return a.element.last > b.element.last }
+            return a.offset < b.offset
+        }.map(\.element)
+    }
+
+    /// Edit distance where swapped neighbours count as one typo (optimal string alignment).
+    public static func typoDistance(_ s1: String, _ s2: String, max: Int = 2) -> Int {
+        let a = Array(s1), b = Array(s2)
+        if abs(a.count - b.count) > max { return max + 1 }
+        if a.isEmpty { return b.count }
+        var prev2: [Int]? = nil
+        var prev = Array(0...b.count)
+        for i in 1...a.count {
+            var cur = [i]
+            var rowMin = i
+            for j in stride(from: 1, through: b.count, by: 1) {
+                let cost = a[i - 1] == b[j - 1] ? 0 : 1
+                var v = Swift.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+                if let p2 = prev2, i > 1, j > 1, a[i - 1] == b[j - 2], a[i - 2] == b[j - 1] { v = Swift.min(v, p2[j - 2] + 1) }
+                cur.append(v)
+                rowMin = Swift.min(rowMin, v)
+            }
+            if rowMin > max { return max + 1 }
+            prev2 = prev
+            prev = cur
+        }
+        return prev[b.count]
+    }
+
+    static func typoLimit(_ n: Int) -> Int { n < 4 ? 0 : n < 8 ? 1 : 2 }
+
+    /// The known item this name means. exact: only the spelling differs; otherwise a likely typo.
+    public static func match(_ name: String, in known: [KnownItem]) -> (item: KnownItem, exact: Bool)? {
+        let k = key(name)
+        guard !k.isEmpty else { return nil }
+        if let same = known.first(where: { $0.key == k }) { return (same, true) }
+        let limit = typoLimit(k.count)
+        var best: KnownItem?
+        var bestD = limit + 1
+        for o in known where typoLimit(o.key.count) > 0 {
+            let d = typoDistance(k, o.key, max: limit)
+            if d < bestD || (d == bestD && best != nil && o.count > best!.count) { best = o; bestD = d }
+        }
+        if let best, bestD <= limit { return (best, false) }
+        return nil
+    }
+
+    /// Groups of names that are probably the same item, to merge.
+    public static func duplicates(_ known: [KnownItem]) -> [DuplicateItems] {
+        var groups: [DuplicateItems] = []
+        var used = Set<String>()
+        for k in known where !used.contains(k.key) {
+            let others = k.spellings.keys.filter { $0 != k.name }.sorted()
+            let similar = known.filter { o in
+                guard o.key != k.key, !used.contains(o.key), typoLimit(o.key.count) > 0 else { return false }
+                let lim = Swift.min(typoLimit(k.key.count), typoLimit(o.key.count))
+                return typoDistance(k.key, o.key, max: lim) <= lim
+            }
+            if others.isEmpty && similar.isEmpty { continue }
+            used.insert(k.key)
+            for o in similar { used.insert(o.key) }
+            groups.append(DuplicateItems(name: k.name, names: others + similar.flatMap { $0.spellings.keys.sorted() },
+                                         count: k.count + similar.reduce(0) { $0 + $1.count }))
+        }
+        return groups
+    }
+
+    /// Renames every item spelled as one of `from` to `to`; returns how many changed.
+    @discardableResult
+    public static func rename(_ purchases: inout [Purchase], from: [String], to: String) -> Int {
+        let set = Set(from)
+        var n = 0
+        for p in purchases.indices {
+            for i in purchases[p].items.indices where set.contains(purchases[p].items[i].name) && purchases[p].items[i].name != to {
+                purchases[p].items[i].name = to
+                n += 1
+            }
+        }
+        return n
+    }
+}
