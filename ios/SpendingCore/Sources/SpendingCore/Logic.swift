@@ -105,13 +105,15 @@ public struct Alloc: Hashable, Sendable {
     public let cat: String
     public let name: String
     public let pid: String
+    public let unexpected: Bool
 
-    public init(date: String, cents: Int, cat: String, name: String, pid: String) {
+    public init(date: String, cents: Int, cat: String, name: String, pid: String, unexpected: Bool = false) {
         self.date = date
         self.cents = cents
         self.cat = cat
         self.name = name
         self.pid = pid
+        self.unexpected = unexpected
     }
 }
 
@@ -150,11 +152,16 @@ public enum Logic {
             for it in p.items {
                 let n = mode == .spread ? max(1, it.days) : 1
                 for (i, c) in split(it.cents, n).enumerated() {
-                    out.append(Alloc(date: Days.add(p.date, i), cents: c, cat: it.cat, name: it.name, pid: p.id))
+                    out.append(Alloc(date: Days.add(p.date, i), cents: c, cat: it.cat, name: it.name, pid: p.id, unexpected: p.unexpected))
                 }
             }
         }
         return out
+    }
+
+    /// Unexpected expenses come out of their own monthly fund, not the regular budgets.
+    public static func regular(_ purchases: [Purchase]) -> [Purchase] {
+        purchases.filter { !$0.unexpected }
     }
 
     public static func sum<S: Sequence>(_ a: S) -> Int where S.Element == Alloc {
@@ -316,7 +323,7 @@ public enum Alerts {
     public static func pending(_ data: AppData, today: String) -> [BudgetAlert] {
         let s = data.settings
         guard s.budgetAlerts else { return [] }
-        let allocs = Logic.allocations(data.purchases)
+        let allocs = Logic.allocations(Logic.regular(data.purchases))
         var out: [BudgetAlert] = []
 
         if let a = Logic.todayAllowance(data, allocs: allocs, today: today) {

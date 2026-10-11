@@ -124,7 +124,7 @@ struct PurchaseRow: View {
 
     private var meta: String {
         let maxDays = purchase.items.map(\.days).max() ?? 1
-        return Days.label(purchase.date) + (maxDays > 1 ? " · ÷\(maxDays) ημ." : "")
+        return (purchase.unexpected ? "⚡ " : "") + Days.label(purchase.date) + (maxDays > 1 ? " · ÷\(maxDays) ημ." : "")
     }
 }
 

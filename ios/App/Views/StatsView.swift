@@ -95,7 +95,8 @@ struct StatsView: View {
             }
         }
 
-        tiles(total: total, prevTotal: prevTotal, filtered: filtered, today: today, budget: budget, cat: cat)
+        let unexpected = Logic.sum(filtered.filter(\.unexpected))
+        tiles(total: total, unexpected: unexpected, prevTotal: prevTotal, filtered: filtered, today: today, budget: budget, cat: cat)
 
         Card {
             let buckets = makeBuckets(filtered, today: today)
@@ -117,7 +118,7 @@ struct StatsView: View {
 
     // MARK: tiles
 
-    private func tiles(total: Int, prevTotal: Int, filtered: [Alloc], today: String, budget: Int?, cat: Cat?) -> some View {
+    private func tiles(total: Int, unexpected: Int, prevTotal: Int, filtered: [Alloc], today: String, budget: Int?, cat: Cat?) -> some View {
         let p = period
         let elapsedEnd = min(p.end, today)
         let elapsed = p.start > today ? 0 : Days.between(p.start, elapsedEnd) + 1
@@ -138,14 +139,24 @@ struct StatsView: View {
                 }
             }
             if let budget {
+                let spent = total - unexpected // budgets do not cover unexpected expenses
                 Card {
                     Text("Budget \(cat?.name ?? kindName)").font(.caption).foregroundStyle(.secondary)
                     HStack(alignment: .firstTextBaseline) {
-                        Text(Fmt.money(total)).font(.title3.bold()).monospacedDigit()
+                        Text(Fmt.money(spent)).font(.title3.bold()).monospacedDigit()
                         Text("/ \(Fmt.money(budget))").foregroundStyle(.secondary).monospacedDigit()
                     }
-                    ProgressBar(value: ratio(total, budget), color: levelColor(ratio(total, budget)))
-                    Text(total <= budget ? "απομένουν \(Fmt.money(budget - total))" : "υπέρβαση \(Fmt.money(total - budget))")
+                    ProgressBar(value: ratio(spent, budget), color: levelColor(ratio(spent, budget)))
+                    Text((spent <= budget ? "απομένουν \(Fmt.money(budget - spent))" : "υπέρβαση \(Fmt.money(spent - budget))")
+                        + (unexpected > 0 ? " · χωρίς τα απρόοπτα" : ""))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if unexpected > 0 {
+                Card {
+                    Text("⚡ Απρόοπτα").font(.caption).foregroundStyle(.secondary)
+                    Text(Fmt.money(unexpected)).font(.title3.bold()).monospacedDigit()
+                    Text("\(Int((Double(unexpected) / Double(max(total, 1)) * 100).rounded()))% του συνόλου")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

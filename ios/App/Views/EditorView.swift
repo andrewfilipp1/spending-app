@@ -29,6 +29,7 @@ struct EditorView: View {
     @State private var items: [DraftItem]
     @State private var expected: Int?
     @State private var source: String
+    @State private var unexpected: Bool
     @State private var error: String?
     @State private var confirmDelete = false
     @FocusState private var focus: Field?
@@ -40,6 +41,7 @@ struct EditorView: View {
         _storeName = State(initialValue: p?.store ?? "")
         _note = State(initialValue: p?.note ?? "")
         _source = State(initialValue: p?.source ?? "manual")
+        _unexpected = State(initialValue: p?.unexpected ?? false)
         _items = State(initialValue: p?.items.map {
             DraftItem(id: $0.id, name: $0.name, price: Money.inputText($0.cents), cat: $0.cat, days: $0.days)
         } ?? [DraftItem()])
@@ -89,6 +91,12 @@ struct EditorView: View {
                         Text("Apple Pay: \(Fmt.money(expected)) · " + (diff > 0 ? "μένουν \(Fmt.money(diff)) για κατανομή" : "υπέρβαση κατά \(Fmt.money(-diff))"))
                             .font(.footnote).foregroundStyle(.secondary)
                     }
+                }
+
+                Section {
+                    Toggle("⚡ Απρόοπτο έξοδο", isOn: $unexpected)
+                } footer: {
+                    Text("Δεν μετράει στο budget· βγαίνει από το ταμείο απροόπτων.")
                 }
 
                 Section("Σημείωση") {
@@ -280,6 +288,7 @@ struct EditorView: View {
         p.store = String(storeName.trimmingCharacters(in: .whitespaces).prefix(120))
         p.note = String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1000))
         p.source = source
+        p.unexpected = unexpected
         p.items = out
         p.review = false
         p.updatedAt = Date().timeIntervalSince1970 * 1000

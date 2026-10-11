@@ -219,3 +219,24 @@ private func pur(_ id: String, _ cents: Int, updated: Double = 0) -> Purchase {
     data.settings.carryOver = false
     #expect(Logic.todayAllowance(data, allocs: allocs, today: "2026-10-15")?.cents == 1000)
 }
+
+@Test func unexpectedExpensesStayOutOfBudgets() throws {
+    var data = AppData()
+    data.settings.budgets.day = 1000
+    data.settings.daySince = "2026-10-12"
+    data.purchases = [
+        Purchase(date: "2026-10-15", items: [Item(name: "Ψωμί", cents: 300, cat: "groceries")]),
+        Purchase(date: "2026-10-15", unexpected: true, items: [Item(name: "Συνεργείο", cents: 25000, cat: "transport")]),
+    ]
+    let allocs = Logic.allocations(Logic.regular(data.purchases))
+    #expect(Logic.sum(allocs) == 300)
+    #expect(Logic.allocations(data.purchases).filter(\.unexpected).count == 1)
+    // Alerts ignore the unexpected expense: 3 € of 10 € is fine
+    #expect(Alerts.pending(data, today: "2026-10-15").isEmpty)
+
+    // The flag and the fund survive a round trip through the web app's format
+    data.settings.unexpectedBudget = 10000
+    let decoded = try JSONDecoder().decode(AppData.self, from: JSONEncoder().encode(data)).sanitized()
+    #expect(decoded.purchases.filter(\.unexpected).count == 1)
+    #expect(decoded.settings.unexpectedBudget == 10000)
+}

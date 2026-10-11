@@ -140,6 +140,7 @@ function sanitize(raw) {
     reminderMinutes: int(rs.reminderMinutes, 0, 1439, 21 * 60),
     budgetAlerts: rs.budgetAlerts !== false,
     carryOver: rs.carryOver !== false,
+    unexpectedBudget: optCents(rs.unexpectedBudget),
     daySince: isISODate(rs.daySince) ? rs.daySince : null,
     alertsSent: (Array.isArray(rs.alertsSent) ? rs.alertsSent : []).filter((k) => typeof k === 'string').slice(-60).map((k) => k.slice(0, 80)),
   };
@@ -183,6 +184,7 @@ function sanitize(raw) {
       createdAt: Number.isFinite(p.createdAt) ? p.createdAt : 0,
       updatedAt: Number.isFinite(p.updatedAt) ? p.updatedAt : 0,
       review: p.review === true,
+      unexpected: p.unexpected === true,
       items: p.items
         .filter((i) => i && Number.isInteger(i.cents) && i.cents > 0 && i.cents < 1e11)
         .map((i) => ({
@@ -423,7 +425,7 @@ function renderHome() {
   if (!P().length && !hasBudget) return welcome();
 
   const t = L.today();
-  const allocs = L.allocations(P(), 'spread');
+  const allocs = L.allocations(L.regular(P()), 'spread');
   const spentIn = (kind) => {
     const { start, end } = L.period(kind, t, s.weekStart);
     return L.sum(allocs.filter((a) => L.inRange(a, start, end)));
@@ -451,6 +453,7 @@ function renderHome() {
     ${installHint()}
     ${homeHero(allocs)}
     <section class="card">${rows}</section>
+    ${unexpectedCard(t)}
     ${categoryBudgetsCard(allocs, t)}
     ${committed > 0 ? `<p class="note">📅 ${money(committed)} έχουν ήδη κατανεμηθεί σε επόμενες ημέρες.</p>` : ''}
     ${byCat.length ? `<section class="card">
@@ -464,6 +467,26 @@ function renderHome() {
       ${recent.length ? `<div class="plist">${recent.map(purchaseCard).join('')}</div>`
         : '<p class="muted">Δεν υπάρχουν ακόμη αγορές. Πάτα <strong>+</strong> για να προσθέσεις.</p>'}
     </section>`;
+}
+
+// The month's unexpected expenses against their own fund.
+function unexpectedCard(t) {
+  const s = S();
+  const { start, end } = L.period('month', t, s.weekStart);
+  const items = L.allocations(P().filter((p) => p.unexpected), 'spread').filter((a) => L.inRange(a, start, end));
+  const spent = L.sum(items);
+  const b = s.unexpectedBudget;
+  if (b == null && !spent) return '';
+  const r = ratioOf(spent, b);
+  return `<section class="card">
+    <div class="prow">
+      <div class="prow-head"><span>⚡ Ταμείο απροόπτων</span>
+        <span><strong>${money(spent)}</strong>${b != null ? ` <span class="muted">/ ${money(b)}</span>` : ''}</span></div>
+      ${b != null ? `<div class="bar"><div class="bar-fill ${level(r)}" data-w="${r * 100}"></div></div>
+        <div class="prow-foot muted">${spent <= b ? `απομένουν ${money(b - spent)} αυτόν τον μήνα` : `υπέρβαση ${money(spent - b)}`}</div>`
+        : '<div class="prow-foot muted">Όρισε ποσό για απρόοπτα στις Ρυθμίσεις</div>'}
+    </div>
+  </section>`;
 }
 
 function categoryBudgetsCard(allocs, t) {
@@ -582,7 +605,7 @@ function purchaseCard(p) {
       <span class="pcard-sub">${p.items.length > 1 ? `${p.items.length} προϊόντα · ` : ''}${esc(names)}</span>
     </span>
     <span class="pcard-amt">${money(total)}
-      <span class="pcard-meta">${L.dayLabel(p.date)}${maxDays > 1 ? ` · ÷${maxDays} ημ.` : ''}</span></span>
+      <span class="pcard-meta">${p.unexpected ? '⚡ ' : ''}${L.dayLabel(p.date)}${maxDays > 1 ? ` · ÷${maxDays} ημ.` : ''}</span></span>
   </button>`;
 }
 
@@ -633,6 +656,8 @@ function renderStats() {
   const inPeriod = allocs.filter((a) => L.inRange(a, start, end));
   const filtered = inPeriod.filter(match);
   const total = L.sum(filtered);
+  const unexpected = L.sum(filtered.filter((a) => a.unexpected));
+  const regularTotal = total - unexpected; // budgets do not cover unexpected expenses
 
   const prev = L.period(st.kind, L.shiftPeriod(st.kind, st.ref, -1), s.weekStart);
   const prevTotal = L.sum(allocs.filter((a) => L.inRange(a, prev.start, prev.end) && match(a)));
@@ -717,9 +742,11 @@ function renderStats() {
       <div class="tile"><div class="tile-label">Μ.Ο. ανά ημέρα</div><div class="tile-value">${avg != null ? money(Math.round(avg)) : '—'}</div>
         <div class="tile-sub muted">${elapsed ? `${elapsed} ημέρες` : 'μελλοντική περίοδος'}</div></div>
       ${budget != null ? `<div class="tile wide"><div class="tile-label">Budget ${esc(cat ? cat.name : KIND_LABEL[st.kind].toLowerCase())}</div>
-        <div class="tile-value">${money(total)} <span class="muted">/ ${money(budget)}</span></div>
-        <div class="bar"><div class="bar-fill ${level(ratioOf(total, budget))}" data-w="${ratioOf(total, budget) * 100}"></div></div>
-        <div class="tile-sub muted">${total <= budget ? `απομένουν ${money(budget - total)}` : `υπέρβαση ${money(total - budget)}`}</div></div>` : ''}
+        <div class="tile-value">${money(regularTotal)} <span class="muted">/ ${money(budget)}</span></div>
+        <div class="bar"><div class="bar-fill ${level(ratioOf(regularTotal, budget))}" data-w="${ratioOf(regularTotal, budget) * 100}"></div></div>
+        <div class="tile-sub muted">${regularTotal <= budget ? `απομένουν ${money(budget - regularTotal)}` : `υπέρβαση ${money(regularTotal - budget)}`}${unexpected ? ' · χωρίς τα απρόοπτα' : ''}</div></div>` : ''}
+      ${unexpected ? `<div class="tile wide"><div class="tile-label">⚡ Απρόοπτα</div><div class="tile-value">${money(unexpected)}</div>
+        <div class="tile-sub muted">${Math.round((unexpected / total) * 100)}% του συνόλου</div></div>` : ''}
     </div>
 
     <section class="card">
@@ -790,6 +817,8 @@ function renderSettings() {
     <p class="muted small">Άφησε κενό ό,τι δεν χρειάζεσαι. Το «Διαθέσιμα σήμερα» βγαίνει από το πιο αυστηρό budget.</p>
     ${KINDS.map((k) => `<label class="setting-row"><span>${KIND_LABEL[k]}</span>
       <span class="money-input"><input inputmode="decimal" data-change="budget" data-kind="${k}" value="${L.centsToInput(s.budgets[k])}" placeholder="—" autocomplete="off"><span>€</span></span></label>`).join('')}
+    <label class="setting-row"><span>⚡ Ταμείο απροόπτων / μήνα<br><span class="muted small">Για επισκευές, γιατρό κ.λπ. Δεν μετράει στα παραπάνω budget</span></span>
+      <span class="money-input"><input inputmode="decimal" data-change="unexpected-budget" value="${L.centsToInput(s.unexpectedBudget)}" placeholder="—" autocomplete="off"><span>€</span></span></label>
     <label class="setting-row"><span>Μεταφορά υπολοίπου ημέρας<br><span class="muted small">Ό,τι δεν ξοδεύεις μια μέρα (ή ξοδεύεις παραπάνω) περνά στην επόμενη, μέσα στον μήνα</span></span>
       <input type="checkbox" class="toggle" data-change="carry" ${s.carryOver ? 'checked' : ''}></label>
     <label class="setting-row"><span>Η εβδομάδα ξεκινά</span>
@@ -961,6 +990,19 @@ const changes = {
     // A new daily budget starts counting savings from today.
     if (el.dataset.kind === 'day' && cents != null && S().budgets.day == null) S().daySince = L.today();
     S().budgets[el.dataset.kind] = cents;
+    el.value = L.centsToInput(cents);
+    save();
+    toast('Αποθηκεύτηκε');
+  },
+  'unexpected-budget': (el) => {
+    const v = el.value.trim();
+    const cents = v === '' ? null : L.toCents(v);
+    if (cents != null && !(cents >= 0)) {
+      toast('Μη έγκυρο ποσό');
+      el.value = L.centsToInput(S().unexpectedBudget);
+      return;
+    }
+    S().unexpectedBudget = cents;
     el.value = L.centsToInput(cents);
     save();
     toast('Αποθηκεύτηκε');
@@ -1141,6 +1183,8 @@ function openEditor(existing = null, prefill = {}) {
       <div id="items"></div>
       <button type="button" class="btn ghost full" id="addItem">+ Προσθήκη προϊόντος</button>
       <div class="total-box" id="totalBox"></div>
+      <label class="setting-row"><span>⚡ Απρόοπτο έξοδο<br><span class="muted small">Δεν μετράει στο budget· βγαίνει από το ταμείο απροόπτων</span></span>
+        <input type="checkbox" class="toggle" name="unexpected" ${draft.unexpected ? 'checked' : ''}></label>
       <label class="field"><span>Σημείωση</span><textarea name="note" rows="2" placeholder="Προαιρετικό">${esc(draft.note)}</textarea></label>
       ${existing ? '<button type="button" class="btn danger full" id="delPurchase">Διαγραφή αγοράς</button>' : ''}
     </div>
@@ -1269,6 +1313,7 @@ function openEditor(existing = null, prefill = {}) {
         date,
         store,
         note: form.note.value.trim().slice(0, 1000),
+        unexpected: form.unexpected.checked,
         updatedAt: Date.now(),
         items: rows.map((i) => ({ ...i, name: (i.name || store || catById(i.cat).name).slice(0, 120) })),
       };
@@ -1372,7 +1417,7 @@ function openCategoryBudget(id) {
   const c = C().find((x) => x.id === id);
   if (!c) return;
   const n = L.budgetChanges(c);
-  const status = L.categoryBudgets([c], L.allocations(P()), L.today(), S().weekStart)[0];
+  const status = L.categoryBudgets([c], L.allocations(L.regular(P())), L.today(), S().weekStart)[0];
   const fmtDate = (ms) => new Date(ms).toLocaleDateString('el-GR', { day: 'numeric', month: 'short', year: 'numeric' });
   const history = [...(c.budgetHistory || [])].reverse();
   openSheet(`<form class="sheet-form small-sheet" novalidate>

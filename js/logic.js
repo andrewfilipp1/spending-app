@@ -84,12 +84,17 @@ export function allocations(purchases, mode = 'spread') {
     for (const it of p.items) {
       const n = mode === 'spread' ? Math.max(1, it.days || 1) : 1;
       splitCents(it.cents, n).forEach((cents, i) => {
-        out.push({ date: addDays(p.date, i), cents, cat: it.cat, name: it.name, pid: p.id });
+        const a = { date: addDays(p.date, i), cents, cat: it.cat, name: it.name, pid: p.id };
+        if (p.unexpected) a.unexpected = true;
+        out.push(a);
       });
     }
   }
   return out;
 }
+
+// Unexpected expenses come out of their own monthly fund, not the regular budgets.
+export const regular = (purchases) => purchases.filter((p) => !p.unexpected);
 
 export const inRange = (a, start, end) => a.date >= start && a.date <= end;
 export const sum = (arr) => arr.reduce((s, a) => s + a.cents, 0);

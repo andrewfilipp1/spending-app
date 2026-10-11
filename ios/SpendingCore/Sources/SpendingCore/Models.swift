@@ -56,6 +56,8 @@ public struct Settings: Codable, Equatable, Sendable {
     public var alertsSent: [String] = []
     /// Unspent (or overspent) daily budget moves to the next day, within the month.
     public var carryOver = true
+    /// Monthly fund for unexpected expenses (cents), separate from the regular budgets.
+    public var unexpectedBudget: Int?
     /// Day the daily budget was first set; earlier days do not count as savings.
     public var daySince: String?
 
@@ -73,6 +75,7 @@ public struct Settings: Codable, Equatable, Sendable {
         budgetAlerts = (try? c.decodeIfPresent(Bool.self, forKey: .budgetAlerts)) ?? true
         alertsSent = (try? c.decodeIfPresent([String].self, forKey: .alertsSent)) ?? []
         carryOver = (try? c.decodeIfPresent(Bool.self, forKey: .carryOver)) ?? true
+        unexpectedBudget = (try? c.decodeIfPresent(Int.self, forKey: .unexpectedBudget)) ?? nil
         daySince = (try? c.decodeIfPresent(String.self, forKey: .daySince)) ?? nil
     }
 }
@@ -166,10 +169,12 @@ public struct Purchase: Codable, Identifiable, Hashable, Sendable {
     public var createdAt: Double
     public var updatedAt: Double
     public var review: Bool // logged automatically, waiting to be checked / split into items
+    /// Comes out of the unexpected-expenses fund instead of the regular budgets.
+    public var unexpected: Bool
     public var items: [Item]
 
     public init(id: String = UUID().uuidString, date: String, store: String = "", note: String = "", source: String = "manual",
-                createdAt: Double = Date().timeIntervalSince1970 * 1000, updatedAt: Double = 0, review: Bool = false, items: [Item]) {
+                createdAt: Double = Date().timeIntervalSince1970 * 1000, updatedAt: Double = 0, review: Bool = false, unexpected: Bool = false, items: [Item]) {
         self.id = id
         self.date = date
         self.store = store
@@ -178,6 +183,7 @@ public struct Purchase: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.review = review
+        self.unexpected = unexpected
         self.items = items
     }
 
@@ -191,6 +197,7 @@ public struct Purchase: Codable, Identifiable, Hashable, Sendable {
         createdAt = (try? c.decodeIfPresent(Double.self, forKey: .createdAt)) ?? 0
         updatedAt = (try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? 0
         review = (try? c.decodeIfPresent(Bool.self, forKey: .review)) ?? false
+        unexpected = (try? c.decodeIfPresent(Bool.self, forKey: .unexpected)) ?? false
         items = (try? c.decodeIfPresent([LenientItem].self, forKey: .items))?.compactMap(\.value) ?? []
     }
 
@@ -281,6 +288,7 @@ public struct AppData: Codable, Equatable, Sendable {
         d.settings.reminderMinutes = min(max(s.reminderMinutes, 0), 24 * 60 - 1)
         d.settings.alertsSent = Array(s.alertsSent.suffix(60))
         if let since = s.daySince, since.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) == nil { d.settings.daySince = nil }
+        if let v = s.unexpectedBudget, v < 0 || v >= 100_000_000_000 { d.settings.unexpectedBudget = nil }
         for k in PeriodKind.allCases {
             if let v = s.budgets[k], v < 0 || v >= 100_000_000_000 { d.settings.budgets[k] = nil }
         }

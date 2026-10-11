@@ -86,6 +86,7 @@ struct SettingsView: View {
     private var budgetSection: some View {
         Section {
             ForEach(PeriodKind.allCases) { BudgetField(kind: $0) }
+            UnexpectedBudgetField()
             Toggle(isOn: binding(\.carryOver)) {
                 Text("Μεταφορά υπολοίπου ημέρας")
                 Text("Ό,τι δεν ξοδεύεις μια μέρα (ή ξοδεύεις παραπάνω) περνά στην επόμενη, μέσα στον μήνα")
@@ -554,6 +555,45 @@ private struct AccountSheet: View {
                 self.error = "Κάτι πήγε στραβά."
             }
             working = false
+        }
+    }
+}
+
+/// Monthly fund for unexpected expenses, kept apart from the regular budgets.
+private struct UnexpectedBudgetField: View {
+    @Environment(Store.self) private var store
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("⚡ Ταμείο απροόπτων / μήνα")
+                Text("Επισκευές, γιατρός κ.λπ. Δεν μετράει στα budget").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            TextField("—", text: $text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: 110)
+                .focused($focused)
+            Text("€").foregroundStyle(.secondary)
+        }
+        .onAppear { text = Money.inputText(store.data.settings.unexpectedBudget) }
+        .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
+    }
+
+    private func commit() {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        let current = store.data.settings.unexpectedBudget
+        if t.isEmpty {
+            if current != nil { store.update { $0.settings.unexpectedBudget = nil } }
+        } else if let c = Money.toCents(t), c >= 0 {
+            if c != current { store.update { $0.settings.unexpectedBudget = c } }
+            text = Money.inputText(c)
+        } else {
+            text = Money.inputText(current)
         }
     }
 }

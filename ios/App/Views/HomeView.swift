@@ -8,7 +8,7 @@ struct HomeView: View {
     var body: some View {
         let data = store.data
         let today = store.today
-        let allocs = Logic.allocations(data.purchases)
+        let allocs = Logic.allocations(Logic.regular(data.purchases))
 
         NavigationStack {
             ScrollView {
@@ -18,6 +18,7 @@ struct HomeView: View {
                     } else {
                         HeroCard(data: data, allocs: allocs, today: today)
                         PeriodsCard(data: data, allocs: allocs, today: today)
+                        UnexpectedCard(data: data, today: today)
                         CategoryBudgetsCard(data: data, allocs: allocs, today: today)
                         let committed = Logic.sum(allocs.filter { $0.date > today })
                         if committed > 0 {
@@ -102,6 +103,35 @@ private struct DayBalanceLine: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.top, 6)
+        }
+    }
+}
+
+/// The month's unexpected expenses against their own fund.
+private struct UnexpectedCard: View {
+    let data: AppData
+    let today: String
+
+    var body: some View {
+        let p = Logic.period(.month, today, weekStart: data.settings.weekStart)
+        let spent = Logic.sum(Logic.allocations(data.purchases.filter(\.unexpected)).filter { p.contains($0.date) })
+        let budget = data.settings.unexpectedBudget
+        if budget != nil || spent > 0 {
+            Card {
+                HStack {
+                    Text("⚡ Ταμείο απροόπτων").font(.subheadline)
+                    Spacer()
+                    Text(Fmt.money(spent)).bold().monospacedDigit()
+                    if let budget { Text("/ \(Fmt.money(budget))").foregroundStyle(.secondary).monospacedDigit() }
+                }
+                if let budget {
+                    ProgressBar(value: ratio(spent, budget), color: levelColor(ratio(spent, budget)))
+                    Text(spent <= budget ? "απομένουν \(Fmt.money(budget - spent)) αυτόν τον μήνα" : "υπέρβαση \(Fmt.money(spent - budget))")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Όρισε ποσό για απρόοπτα στις Ρυθμίσεις").font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
