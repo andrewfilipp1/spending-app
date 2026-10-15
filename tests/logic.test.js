@@ -165,3 +165,16 @@ test('item history matches spellings and typos', () => {
   assert.equal(L.renameItems(copy, dups[1].names, 'Μπανάνες'), 2);
   assert.deepEqual(copy[3].items.map((i) => i.name), ['Μπανάνες', 'Μπανάνες', 'Μπανάνες']);
 });
+
+test('categories with their own fund stay out of the general budgets', () => {
+  const cats = [{ id: 'groceries', ownFund: true }, { id: 'coffee' }];
+  const allocs = L.allocations([{ id: 'p', date: '2026-10-15', items: [
+    { name: 'Σούπερ μάρκετ', cents: 7000, cat: 'groceries', days: 1 },
+    { name: 'Καφές', cents: 300, cat: 'coffee', days: 1 },
+  ] }]);
+  const general = L.general(allocs, cats);
+  assert.equal(L.sum(general), 300);
+  assert.equal(L.dayBalance(1000, general, '2026-10-16'), 1000 * 5 - 300); // 11–15 Oct
+  assert.equal(L.categoryBudgets([{ ...cats[0], budget: 6000, budgetPeriod: 'week' }], allocs, '2026-10-15')[0].spent, 7000);
+  assert.equal(L.general(allocs, [{ id: 'groceries' }]).length, 2);
+});

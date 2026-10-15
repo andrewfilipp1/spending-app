@@ -9,6 +9,7 @@ struct HomeView: View {
         let data = store.data
         let today = store.today
         let allocs = Logic.allocations(Logic.regular(data.purchases))
+        let general = Logic.general(allocs, categories: data.categories) // without categories that have their own fund
 
         NavigationStack {
             ScrollView {
@@ -16,8 +17,8 @@ struct HomeView: View {
                     if data.purchases.isEmpty && !data.settings.budgets.any {
                         WelcomeCard()
                     } else {
-                        HeroCard(data: data, allocs: allocs, today: today)
-                        PeriodsCard(data: data, allocs: allocs, today: today)
+                        HeroCard(data: data, allocs: general, today: today)
+                        PeriodsCard(data: data, allocs: general, today: today)
                         UnexpectedCard(data: data, today: today)
                         CategoryBudgetsCard(data: data, allocs: allocs, today: today)
                         let committed = Logic.sum(allocs.filter { $0.date > today })
@@ -192,6 +193,7 @@ private struct CategoryBudgetsCard: View {
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Color(.tertiarySystemFill), in: Capsule())
+                            if s.category.ownFund { Text("🧺").font(.caption2).accessibilityLabel("Δικό της ταμείο") }
                             if s.category.budgetChanges > 0 { BudgetChangesBadge(count: s.category.budgetChanges) }
                             Spacer()
                             Text(Fmt.money(s.spent)).fontWeight(.semibold).monospacedDigit()

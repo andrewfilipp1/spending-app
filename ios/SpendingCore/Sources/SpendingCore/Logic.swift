@@ -164,6 +164,13 @@ public enum Logic {
         purchases.filter { !$0.unexpected }
     }
 
+    /// Categories with their own fund (e.g. weekly groceries) are kept out of the general
+    /// day/week/month/year budgets; they count only against their category budget.
+    public static func general(_ allocs: [Alloc], categories: [Category]) -> [Alloc] {
+        let own = Set(categories.filter(\.ownFund).map(\.id))
+        return own.isEmpty ? allocs : allocs.filter { !own.contains($0.cat) }
+    }
+
     public static func sum<S: Sequence>(_ a: S) -> Int where S.Element == Alloc {
         a.reduce(0) { $0 + $1.cents }
     }
@@ -324,10 +331,11 @@ public enum Alerts {
         let s = data.settings
         guard s.budgetAlerts else { return [] }
         let allocs = Logic.allocations(Logic.regular(data.purchases))
+        let general = Logic.general(allocs, categories: data.categories)
         var out: [BudgetAlert] = []
 
-        if let a = Logic.todayAllowance(data, allocs: allocs, today: today) {
-            let spent = Logic.sum(allocs.filter { $0.date == today })
+        if let a = Logic.todayAllowance(data, allocs: general, today: today) {
+            let spent = Logic.sum(general.filter { $0.date == today })
             if spent > max(0, a.cents) {
                 out.append(BudgetAlert(key: "day-\(today)", title: "Ξεπέρασες το σημερινό όριο",
                                        body: "Άνοιξε την εφαρμογή για λεπτομέρειες."))
@@ -336,7 +344,7 @@ public enum Alerts {
         for k in [PeriodKind.week, .month, .year] {
             guard let b = s.budgets[k], b > 0 else { continue }
             let p = Logic.period(k, today, weekStart: s.weekStart)
-            let spent = Logic.sum(allocs.filter { p.contains($0.date) })
+            let spent = Logic.sum(general.filter { p.contains($0.date) })
             let adj = periodAdj[k]!
             if spent >= b {
                 out.append(BudgetAlert(key: "\(k.rawValue)-\(p.start)-100", title: "Ξεπεράστηκε το budget",

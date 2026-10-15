@@ -9,6 +9,7 @@ struct CategoryBudgetView: View {
 
     @State private var amount = ""
     @State private var period: PeriodKind = .month
+    @State private var ownFund = false
     @State private var loaded = false
     @State private var invalid = false
 
@@ -49,6 +50,12 @@ struct CategoryBudgetView: View {
                 Text("Budget κατηγορίας")
             } footer: {
                 Text("Άφησε κενό για κανένα όριο. Θα λάβεις ειδοποίηση στο 80% και στο 100%.")
+            }
+
+            Section {
+                Toggle("🧺 Δικό της ταμείο", isOn: $ownFund)
+            } footer: {
+                Text("Δεν μετράει στο ημερήσιο ούτε στο γενικό budget, μόνο στο όριο της κατηγορίας. Π.χ. σούπερ μάρκετ για όλη την εβδομάδα.")
             }
 
             if let status = currentStatus {
@@ -99,6 +106,7 @@ struct CategoryBudgetView: View {
             loaded = true
             amount = Money.inputText(c.budget)
             period = c.budgetPeriod
+            ownFund = c.ownFund
         }
         .onChange(of: amount) { invalid = false }
     }
@@ -118,6 +126,7 @@ struct CategoryBudgetView: View {
         store.update { d in
             if let i = d.categories.firstIndex(where: { $0.id == categoryID }) {
                 d.categories[i].setBudget(cents, period: period)
+                d.categories[i].ownFund = ownFund
             }
         }
         dismiss()

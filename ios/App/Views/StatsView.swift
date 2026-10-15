@@ -96,7 +96,9 @@ struct StatsView: View {
         }
 
         let unexpected = Logic.sum(filtered.filter(\.unexpected))
-        tiles(total: total, unexpected: unexpected, prevTotal: prevTotal, filtered: filtered, today: today, budget: budget, cat: cat)
+        // General budgets cover neither unexpected expenses nor categories with their own fund.
+        let ownFund = cat != nil ? 0 : total - unexpected - Logic.sum(Logic.general(filtered.filter { !$0.unexpected }, categories: data.categories))
+        tiles(total: total, unexpected: unexpected, ownFund: ownFund, prevTotal: prevTotal, filtered: filtered, today: today, budget: budget, cat: cat)
 
         Card {
             let buckets = makeBuckets(filtered, today: today)
@@ -118,7 +120,7 @@ struct StatsView: View {
 
     // MARK: tiles
 
-    private func tiles(total: Int, unexpected: Int, prevTotal: Int, filtered: [Alloc], today: String, budget: Int?, cat: Cat?) -> some View {
+    private func tiles(total: Int, unexpected: Int, ownFund: Int, prevTotal: Int, filtered: [Alloc], today: String, budget: Int?, cat: Cat?) -> some View {
         let p = period
         let elapsedEnd = min(p.end, today)
         let elapsed = p.start > today ? 0 : Days.between(p.start, elapsedEnd) + 1
@@ -139,7 +141,8 @@ struct StatsView: View {
                 }
             }
             if let budget {
-                let spent = total - unexpected // budgets do not cover unexpected expenses
+                let spent = total - unexpected - ownFund
+                let without = [unexpected > 0 ? "τα απρόοπτα" : nil, ownFund > 0 ? "τα ξεχωριστά ταμεία" : nil].compactMap { $0 }
                 Card {
                     Text("Budget \(cat?.name ?? kindName)").font(.caption).foregroundStyle(.secondary)
                     HStack(alignment: .firstTextBaseline) {
@@ -148,7 +151,7 @@ struct StatsView: View {
                     }
                     ProgressBar(value: ratio(spent, budget), color: levelColor(ratio(spent, budget)))
                     Text((spent <= budget ? "απομένουν \(Fmt.money(budget - spent))" : "υπέρβαση \(Fmt.money(spent - budget))")
-                        + (unexpected > 0 ? " · χωρίς τα απρόοπτα" : ""))
+                        + (without.isEmpty ? "" : " · χωρίς " + without.joined(separator: " και ")))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

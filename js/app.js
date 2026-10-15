@@ -154,6 +154,7 @@ function sanitize(raw) {
         color: isHex(c.color) ? c.color : '#64748b',
         budget: optCents(c.budget),
         budgetPeriod: c.budgetPeriod === 'week' ? 'week' : 'month',
+        ownFund: c.ownFund === true,
         budgetHistory: (Array.isArray(c.budgetHistory) ? c.budgetHistory : []).slice(-200)
           .filter((h) => h && Number.isFinite(h.at))
           .map((h) => ({
@@ -426,9 +427,10 @@ function renderHome() {
 
   const t = L.today();
   const allocs = L.allocations(L.regular(P()), 'spread');
+  const general = L.general(allocs, C()); // without categories that have their own fund
   const spentIn = (kind) => {
     const { start, end } = L.period(kind, t, s.weekStart);
-    return L.sum(allocs.filter((a) => L.inRange(a, start, end)));
+    return L.sum(general.filter((a) => L.inRange(a, start, end)));
   };
 
   const rows = KINDS.filter((k) => k !== 'day' && (k !== 'year' || s.budgets.year != null)).map((k) => {
@@ -451,7 +453,7 @@ function renderHome() {
 
   return `
     ${installHint()}
-    ${homeHero(allocs)}
+    ${homeHero(general)}
     <section class="card">${rows}</section>
     ${unexpectedCard(t)}
     ${categoryBudgetsCard(allocs, t)}
@@ -498,7 +500,7 @@ function categoryBudgetsCard(allocs, t) {
     ${list.map(({ cat: c, spent, budget }) => {
       const r = ratioOf(spent, budget);
       return `<div class="prow">
-        <div class="prow-head"><span>${esc(c.emoji)} ${esc(c.name)} <span class="tag">${c.budgetPeriod === 'week' ? 'εβδ.' : 'μήνας'}</span> ${changesBadge(c)}</span>
+        <div class="prow-head"><span>${esc(c.emoji)} ${esc(c.name)} <span class="tag">${c.budgetPeriod === 'week' ? 'εβδ.' : 'μήνας'}</span>${c.ownFund ? ' <span title="Δικό της ταμείο">🧺</span>' : ''} ${changesBadge(c)}</span>
           <span><strong>${money(spent)}</strong> <span class="muted">/ ${money(budget)}</span></span></div>
         <div class="bar"><div class="bar-fill ${level(r)}" data-w="${r * 100}"></div></div>
         <div class="prow-foot ${spent > budget ? 'over-text' : 'muted'}">${spent <= budget ? `απομένουν ${money(budget - spent)}` : `υπέρβαση ${money(spent - budget)}`}</div>
@@ -657,7 +659,9 @@ function renderStats() {
   const filtered = inPeriod.filter(match);
   const total = L.sum(filtered);
   const unexpected = L.sum(filtered.filter((a) => a.unexpected));
-  const regularTotal = total - unexpected; // budgets do not cover unexpected expenses
+  // General budgets cover neither unexpected expenses nor categories with their own fund.
+  const ownFund = st.cat ? 0 : total - unexpected - L.sum(L.general(filtered.filter((a) => !a.unexpected), C()));
+  const regularTotal = total - unexpected - ownFund;
 
   const prev = L.period(st.kind, L.shiftPeriod(st.kind, st.ref, -1), s.weekStart);
   const prevTotal = L.sum(allocs.filter((a) => L.inRange(a, prev.start, prev.end) && match(a)));
@@ -744,7 +748,7 @@ function renderStats() {
       ${budget != null ? `<div class="tile wide"><div class="tile-label">Budget ${esc(cat ? cat.name : KIND_LABEL[st.kind].toLowerCase())}</div>
         <div class="tile-value">${money(regularTotal)} <span class="muted">/ ${money(budget)}</span></div>
         <div class="bar"><div class="bar-fill ${level(ratioOf(regularTotal, budget))}" data-w="${ratioOf(regularTotal, budget) * 100}"></div></div>
-        <div class="tile-sub muted">${regularTotal <= budget ? `απομένουν ${money(budget - regularTotal)}` : `υπέρβαση ${money(regularTotal - budget)}`}${unexpected ? ' · χωρίς τα απρόοπτα' : ''}</div></div>` : ''}
+        <div class="tile-sub muted">${regularTotal <= budget ? `απομένουν ${money(budget - regularTotal)}` : `υπέρβαση ${money(regularTotal - budget)}`}${[unexpected && 'τα απρόοπτα', ownFund && 'τα ξεχωριστά ταμεία'].filter(Boolean).map((x, i) => (i ? ' και ' : ' · χωρίς ') + x).join('')}</div></div>` : ''}
       ${unexpected ? `<div class="tile wide"><div class="tile-label">⚡ Απρόοπτα</div><div class="tile-value">${money(unexpected)}</div>
         <div class="tile-sub muted">${Math.round((unexpected / total) * 100)}% του συνόλου</div></div>` : ''}
     </div>
@@ -1562,6 +1566,8 @@ function openCategoryBudget(id) {
           <option value="month" ${c.budgetPeriod !== 'week' ? 'selected' : ''}>Μήνα</option></select></label>
       </div>
       <p class="muted small">Άφησε κενό για κανένα όριο.</p>
+      <label class="setting-row"><span>🧺 Δικό της ταμείο<br><span class="muted small">Δεν μετράει στο ημερήσιο ούτε στο γενικό budget, μόνο στο όριο της κατηγορίας. Π.χ. σούπερ μάρκετ για όλη την εβδομάδα.</span></span>
+        <input type="checkbox" class="toggle" name="ownFund" ${c.ownFund ? 'checked' : ''}></label>
       ${status ? `<div class="card"><div class="prow-head"><span>${c.budgetPeriod === 'week' ? 'Αυτή την εβδομάδα' : 'Αυτόν τον μήνα'}</span>
         <span><strong>${money(status.spent)}</strong> <span class="muted">/ ${money(status.budget)}</span></span></div>
         <div class="bar"><div class="bar-fill ${level(ratioOf(status.spent, status.budget))}" data-w="${ratioOf(status.spent, status.budget) * 100}"></div></div></div>` : ''}
@@ -1575,7 +1581,10 @@ function openCategoryBudget(id) {
       const t = f.amount.value.trim();
       const cents = t === '' ? null : L.toCents(t);
       if (cents != null && !(cents >= 0)) { toast('Μη έγκυρο ποσό'); return; }
-      if (L.setCategoryBudget(c, cents, f.period.value)) await save();
+      const budgetChanged = L.setCategoryBudget(c, cents, f.period.value);
+      const fundChanged = c.ownFund !== f.ownFund.checked;
+      c.ownFund = f.ownFund.checked;
+      if (budgetChanged || fundChanged) await save();
       closeSheet();
       render();
     });

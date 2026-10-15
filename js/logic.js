@@ -96,6 +96,13 @@ export function allocations(purchases, mode = 'spread') {
 // Unexpected expenses come out of their own monthly fund, not the regular budgets.
 export const regular = (purchases) => purchases.filter((p) => !p.unexpected);
 
+// Categories with their own fund (e.g. weekly groceries) are kept out of the general
+// day/week/month/year budgets; they count only against their category budget.
+export function general(allocs, categories) {
+  const own = new Set(categories.filter((c) => c.ownFund).map((c) => c.id));
+  return own.size ? allocs.filter((a) => !own.has(a.cat)) : allocs;
+}
+
 export const inRange = (a, start, end) => a.date >= start && a.date <= end;
 export const sum = (arr) => arr.reduce((s, a) => s + a.cents, 0);
 

@@ -105,9 +105,11 @@ public struct Category: Codable, Identifiable, Hashable, Sendable {
     public var budget: Int? // cents per budgetPeriod
     public var budgetPeriod: PeriodKind // .week or .month
     public var budgetHistory: [BudgetChange]
+    /// Own fund (e.g. weekly groceries): kept out of the general budgets, counts only against `budget`.
+    public var ownFund: Bool
 
     public init(id: String = UUID().uuidString, name: String, emoji: String, color: String, budget: Int? = nil,
-                budgetPeriod: PeriodKind = .month, budgetHistory: [BudgetChange] = []) {
+                budgetPeriod: PeriodKind = .month, budgetHistory: [BudgetChange] = [], ownFund: Bool = false) {
         self.id = id
         self.name = name
         self.emoji = emoji
@@ -115,6 +117,7 @@ public struct Category: Codable, Identifiable, Hashable, Sendable {
         self.budget = budget
         self.budgetPeriod = budgetPeriod
         self.budgetHistory = budgetHistory
+        self.ownFund = ownFund
     }
 
     public init(from decoder: Decoder) throws {
@@ -126,6 +129,7 @@ public struct Category: Codable, Identifiable, Hashable, Sendable {
         budget = (try? c.decodeIfPresent(Int.self, forKey: .budget)) ?? nil
         budgetPeriod = (try? c.decodeIfPresent(PeriodKind.self, forKey: .budgetPeriod)) ?? .month
         budgetHistory = (try? c.decodeIfPresent([BudgetChange].self, forKey: .budgetHistory)) ?? []
+        ownFund = (try? c.decodeIfPresent(Bool.self, forKey: .ownFund)) ?? false
     }
 
     /// How many times an existing budget was changed or removed (setting it the first time is not a change).

@@ -279,3 +279,21 @@ private func pur(_ id: String, _ cents: Int, updated: Double = 0) -> Purchase {
     #expect(ItemHistory.rename(&ps, from: dups[1].names, to: "Μπανάνες") == 2)
     #expect(ps[3].items.map(\.name) == ["Μπανάνες", "Μπανάνες", "Μπανάνες"])
 }
+
+@Test func ownFundCategoriesStayOutOfGeneralBudgets() throws {
+    var data = AppData()
+    data.settings.budgets.month = 10000
+    data.purchases = [Purchase(date: "2026-10-05", items: [Item(name: "Σούπερ μάρκετ", cents: 9000, cat: "groceries"),
+                                                          Item(name: "Καφές", cents: 300, cat: "coffee")])]
+    #expect(Alerts.pending(data, today: "2026-10-10").map(\.key) == ["month-2026-10-01-80"])
+    let i = try #require(data.categories.firstIndex { $0.id == "groceries" })
+    data.categories[i].ownFund = true
+    #expect(Alerts.pending(data, today: "2026-10-10").isEmpty)
+    let general = Logic.general(Logic.allocations(data.purchases), categories: data.categories)
+    #expect(Logic.sum(general) == 300)
+
+    // Same JSON key as the web app.
+    let json = Data(#"{"id":"g","name":"Σούπερ","emoji":"🛒","color":"#16a34a","ownFund":true}"#.utf8)
+    #expect(try JSONDecoder().decode(SpendingCore.Category.self, from: json).ownFund)
+    #expect(try !JSONDecoder().decode(SpendingCore.Category.self, from: Data(#"{"id":"g"}"#.utf8)).ownFund)
+}
