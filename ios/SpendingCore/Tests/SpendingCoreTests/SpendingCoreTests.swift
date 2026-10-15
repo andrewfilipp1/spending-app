@@ -293,7 +293,7 @@ private func pur(_ id: String, _ cents: Int, updated: Double = 0) -> Purchase {
     #expect(Logic.sum(general) == 300)
 
     // Same JSON key as the web app.
-    let json = Data(#"{"id":"g","name":"Σούπερ","emoji":"🛒","color":"#16a34a","ownFund":true}"#.utf8)
+    let json = Data(##"{"id":"g","name":"Σούπερ","emoji":"🛒","color":"#16a34a","ownFund":true}"##.utf8)
     #expect(try JSONDecoder().decode(SpendingCore.Category.self, from: json).ownFund)
     #expect(try !JSONDecoder().decode(SpendingCore.Category.self, from: Data(#"{"id":"g"}"#.utf8)).ownFund)
 }
