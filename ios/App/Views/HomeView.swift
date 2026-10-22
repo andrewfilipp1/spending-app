@@ -21,6 +21,14 @@ struct HomeView: View {
                         PeriodsCard(data: data, allocs: general, today: today)
                         UnexpectedCard(data: data, today: today)
                         CategoryBudgetsCard(data: data, allocs: allocs, today: today)
+                        let month = Logic.period(.month, today, weekStart: data.settings.weekStart)
+                        let monthGeneral = general.filter { month.contains($0.date) }
+                        let offDaily = Logic.sum(monthGeneral) - Logic.sum(Logic.daily(monthGeneral, categories: data.categories))
+                        if offDaily > 0 {
+                            Label("\(Fmt.money(offDaily)) σε γενικές πληρωμές αυτόν τον μήνα (συνδρομές κ.λπ.), εκτός ημερήσιου ορίου.", systemImage: "pin")
+                                .font(.footnote).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+                        }
                         let committed = Logic.sum(allocs.filter { $0.date > today })
                         if committed > 0 {
                             Label("\(Fmt.money(committed)) έχουν ήδη κατανεμηθεί σε επόμενες ημέρες.", systemImage: "calendar")
@@ -52,7 +60,9 @@ private struct HeroCard: View {
     private static let basis: [PeriodKind: String] = [.day: "ημερήσιου", .week: "εβδομαδιαίου", .month: "μηνιαίου", .year: "ετήσιου"]
 
     var body: some View {
-        let spent = Logic.sum(allocs.filter { $0.date == today })
+        // General payments (subscriptions etc.) stay out of the daily limit.
+        let spent = Logic.sum(Logic.daily(allocs, categories: data.categories).filter { $0.date == today })
+        let paidToday = Logic.sum(allocs.filter { $0.date == today }) - spent
         let allowance = Logic.todayAllowance(data, allocs: allocs, today: today)
         let allowed = max(0, allowance?.cents ?? 0)
         let left = allowed - spent
@@ -67,13 +77,15 @@ private struct HeroCard: View {
                     ? "Το \(Self.basis[allowance.kind]!) budget έχει ήδη εξαντληθεί"
                     : "Ξόδεψες \(Fmt.money(spent)) από \(Fmt.money(allowed)) · βάσει \(Self.basis[allowance.kind]!) budget")
                     .font(.footnote).opacity(0.9)
+                PaidTodayLine(cents: paidToday)
                 if let day = data.settings.budgets.day {
-                    DayBalanceLine(balance: Logic.dayBalance(budget: day, allocs: allocs, today: today, since: data.settings.daySince),
+                    DayBalanceLine(balance: Logic.dayBalance(budget: day, allocs: Logic.daily(allocs, categories: data.categories), today: today, since: data.settings.daySince),
                                    carry: data.settings.carryOver)
                 }
             } else {
                 Text("Ξόδεψες σήμερα").font(.subheadline).opacity(0.9)
                 Text(Fmt.money(spent)).font(.system(size: 42, weight: .heavy, design: .rounded)).monospacedDigit()
+                PaidTodayLine(cents: paidToday)
                 Button("Όρισε budget για να βλέπεις τι σου απομένει →") { router.tab = .settings }
                     .font(.footnote.weight(.semibold)).foregroundStyle(.white)
             }
@@ -86,6 +98,17 @@ private struct HeroCard: View {
                 : [Color.brand, Color(red: 0.05, green: 0.45, blue: 0.56)], startPoint: .topLeading, endPoint: .bottomTrailing),
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
+    }
+}
+
+/// Today's general payments, shown apart since they do not count in the daily limit.
+private struct PaidTodayLine: View {
+    let cents: Int
+
+    var body: some View {
+        if cents > 0 {
+            Text("📌 Και \(Fmt.money(cents)) σε γενικές πληρωμές, εκτός ημερήσιου ορίου").font(.footnote).opacity(0.9)
+        }
     }
 }
 

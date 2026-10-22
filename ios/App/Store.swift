@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SpendingCore
+import UIKit
 
 /// Owns the app data. Everything is stored in one JSON file inside the app sandbox,
 /// protected by iOS Data Protection (encrypted with the device passcode while locked).
@@ -104,7 +105,9 @@ final class Store {
         let cat = MerchantHints.category(for: name, in: loaded ? data : AppData())
         let p = Purchase(date: Days.today(), store: String(name.prefix(120)), source: "applepay", review: true,
                          items: [Item(name: name.isEmpty ? "Πληρωμή Apple Pay" : String(name.prefix(120)), cents: cents, cat: cat)])
-        if loaded {
+        // Apple Pay from the lock screen: the main file cannot be written, even if the app is
+        // already running with the data loaded, so the payment waits in the inbox.
+        if loaded && UIApplication.shared.isProtectedDataAvailable {
             upsert(p)
         } else {
             appendToInbox(p)

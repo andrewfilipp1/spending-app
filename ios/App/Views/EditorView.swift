@@ -30,6 +30,7 @@ struct EditorView: View {
     @State private var expected: Int?
     @State private var source: String
     @State private var unexpected: Bool
+    @State private var offDaily: Bool
     @State private var error: String?
     @State private var confirmDelete = false
     @State private var known: [KnownItem] = []
@@ -46,6 +47,7 @@ struct EditorView: View {
         _note = State(initialValue: p?.note ?? "")
         _source = State(initialValue: p?.source ?? "manual")
         _unexpected = State(initialValue: p?.unexpected ?? false)
+        _offDaily = State(initialValue: p?.offDaily ?? false)
         _items = State(initialValue: p?.items.map {
             DraftItem(id: $0.id, name: $0.name, price: Money.inputText($0.cents), cat: $0.cat, days: $0.days)
         } ?? [DraftItem()])
@@ -101,6 +103,12 @@ struct EditorView: View {
                     Toggle("⚡ Απρόοπτο έξοδο", isOn: $unexpected)
                 } footer: {
                     Text("Δεν μετράει στο budget· βγαίνει από το ταμείο απροόπτων.")
+                }
+
+                Section {
+                    Toggle("📌 Γενική πληρωμή", isOn: $offDaily)
+                } footer: {
+                    Text("Π.χ. συνδρομή ή λογαριασμός: μετράει στο μηνιαίο budget, όχι στο ημερήσιο όριο.")
                 }
 
                 Section("Σημείωση") {
@@ -273,7 +281,9 @@ struct EditorView: View {
 
     private func pasteFromClipboard() {
         guard let text = UIPasteboard.general.string, let tx = Logic.parseTransaction(text) else {
-            error = "Δεν βρέθηκε ποσό στο πρόχειρο."
+            error = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Το πρόχειρο είναι άδειο. Καλύτερα χρησιμοποίησε την αυτόματη καταγραφή (Ρυθμίσεις → Apple Pay)."
+                : "Δεν βρέθηκε ποσό στο πρόχειρο."
             return
         }
         if storeName.isEmpty { storeName = tx.merchant }
@@ -318,6 +328,7 @@ struct EditorView: View {
         p.note = String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1000))
         p.source = source
         p.unexpected = unexpected
+        p.offDaily = offDaily
         p.items = out
         p.review = false
         p.updatedAt = Date().timeIntervalSince1970 * 1000

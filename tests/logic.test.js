@@ -178,3 +178,18 @@ test('categories with their own fund stay out of the general budgets', () => {
   assert.equal(L.categoryBudgets([{ ...cats[0], budget: 6000, budgetPeriod: 'week' }], allocs, '2026-10-15')[0].spent, 7000);
   assert.equal(L.general(allocs, [{ id: 'groceries' }]).length, 2);
 });
+
+test('general payments stay out of the daily limit but count in the month', () => {
+  const cats = [{ id: 'subs', offDaily: true }, { id: 'coffee' }, { id: 'other' }];
+  const allocs = L.allocations([
+    { id: 'a', date: '2026-10-15', items: [{ name: 'Netflix', cents: 1200, cat: 'subs', days: 1 }] },
+    { id: 'b', date: '2026-10-15', items: [{ name: 'Καφές', cents: 300, cat: 'coffee', days: 1 }] },
+    { id: 'c', date: '2026-10-16', offDaily: true, items: [{ name: 'Ασφάλεια', cents: 5000, cat: 'other', days: 1 }] },
+  ]);
+  const daily = L.daily(allocs, cats);
+  assert.deepEqual(daily.map((a) => a.pid), ['b']);
+  assert.equal(L.dayBalance(1000, daily, '2026-10-16'), 1000 * 5 - 300); // 11–15 Oct
+  // Month budget 31 €: 15,00 € before today, 50 € paid today outside the daily limit, 16 days left.
+  assert.equal(L.dailyAllowance(31000, allocs, 'month', '2026-10-16', 1, 5000), Math.floor((31000 - 1500 - 5000) / 16));
+  assert.equal(L.daily(allocs, [{ id: 'subs' }]).length, 2);
+});

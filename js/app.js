@@ -155,6 +155,7 @@ function sanitize(raw) {
         budget: optCents(c.budget),
         budgetPeriod: c.budgetPeriod === 'week' ? 'week' : 'month',
         ownFund: c.ownFund === true,
+        offDaily: c.offDaily === true,
         budgetHistory: (Array.isArray(c.budgetHistory) ? c.budgetHistory : []).slice(-200)
           .filter((h) => h && Number.isFinite(h.at))
           .map((h) => ({
@@ -186,6 +187,7 @@ function sanitize(raw) {
       updatedAt: Number.isFinite(p.updatedAt) ? p.updatedAt : 0,
       review: p.review === true,
       unexpected: p.unexpected === true,
+      offDaily: p.offDaily === true,
       items: p.items
         .filter((i) => i && Number.isInteger(i.cents) && i.cents > 0 && i.cents < 1e11)
         .map((i) => ({
@@ -449,6 +451,8 @@ function renderHome() {
   const byCat = groupByCat(allocs.filter((a) => L.inRange(a, mStart, mEnd)));
   const maxCat = Math.max(1, ...byCat.map((c) => c.cents));
   const committed = L.sum(allocs.filter((a) => a.date > t));
+  const monthGeneral = general.filter((a) => L.inRange(a, mStart, mEnd));
+  const offDailyMonth = L.sum(monthGeneral) - L.sum(L.daily(monthGeneral, C()));
   const recent = [...P()].sort(byNewest).slice(0, 5);
 
   return `
@@ -457,6 +461,7 @@ function renderHome() {
     <section class="card">${rows}</section>
     ${unexpectedCard(t)}
     ${categoryBudgetsCard(allocs, t)}
+    ${offDailyMonth > 0 ? `<p class="note">📌 ${money(offDailyMonth)} σε γενικές πληρωμές αυτόν τον μήνα (συνδρομές κ.λπ.), εκτός ημερήσιου ορίου.</p>` : ''}
     ${committed > 0 ? `<p class="note">📅 ${money(committed)} έχουν ήδη κατανεμηθεί σε επόμενες ημέρες.</p>` : ''}
     ${byCat.length ? `<section class="card">
       <div class="card-head"><h2 class="card-title">Κατηγορίες αυτόν τον μήνα</h2>
@@ -512,17 +517,22 @@ function categoryBudgetsCard(allocs, t) {
 function homeHero(allocs) {
   const s = S();
   const t = L.today();
-  const spentToday = L.sum(allocs.filter((a) => a.date === t));
+  // General payments (subscriptions etc.) stay out of the daily limit.
+  const daily = L.daily(allocs, C());
+  const spentToday = L.sum(daily.filter((a) => a.date === t));
+  const paidToday = L.sum(allocs.filter((a) => a.date === t)) - spentToday;
   const opts = [];
-  const balance = s.budgets.day != null ? L.dayBalance(s.budgets.day, allocs, t, s.daySince) : 0;
+  const balance = s.budgets.day != null ? L.dayBalance(s.budgets.day, daily, t, s.daySince) : 0;
   if (s.budgets.day != null) opts.push({ cents: s.budgets.day + (s.carryOver ? balance : 0), kind: 'day' });
   for (const k of ['week', 'month', 'year']) {
-    if (s.budgets[k] != null) opts.push({ cents: L.dailyAllowance(s.budgets[k], allocs, k, t, s.weekStart), kind: k });
+    if (s.budgets[k] != null) opts.push({ cents: L.dailyAllowance(s.budgets[k], allocs, k, t, s.weekStart, paidToday), kind: k });
   }
+  const paidLine = paidToday > 0 ? `<div class="hero-sub">📌 Και ${money(paidToday)} σε γενικές πληρωμές, εκτός ημερήσιου ορίου</div>` : '';
   if (!opts.length) {
     return `<section class="hero">
       <div class="hero-label">Ξόδεψες σήμερα</div>
       <div class="hero-amount">${money(spentToday)}</div>
+      ${paidLine}
       <button class="hero-link" data-action="goto" data-tab="settings">Όρισε budget για να βλέπεις τι σου απομένει →</button>
     </section>`;
   }
@@ -538,6 +548,7 @@ function homeHero(allocs) {
     <div class="hero-sub">${best.cents <= 0
       ? `Το ${KIND_LABEL[best.kind].toLowerCase()} budget έχει ήδη εξαντληθεί`
       : `Ξόδεψες ${money(spentToday)} από ${money(allowance)} · βάσει ${BASIS[best.kind]}`}</div>
+    ${paidLine}
     ${s.budgets.day != null ? dayBalanceLine(balance, s.carryOver) : ''}
   </section>`;
 }
@@ -607,7 +618,7 @@ function purchaseCard(p) {
       <span class="pcard-sub">${p.items.length > 1 ? `${p.items.length} προϊόντα · ` : ''}${esc(names)}</span>
     </span>
     <span class="pcard-amt">${money(total)}
-      <span class="pcard-meta">${p.unexpected ? '⚡ ' : ''}${L.dayLabel(p.date)}${maxDays > 1 ? ` · ÷${maxDays} ημ.` : ''}</span></span>
+      <span class="pcard-meta">${p.unexpected ? '⚡ ' : p.offDaily || p.items.every((i) => catById(i.cat).offDaily) ? '📌 ' : ''}${L.dayLabel(p.date)}${maxDays > 1 ? ` · ÷${maxDays} ημ.` : ''}</span></span>
   </button>`;
 }
 
@@ -836,7 +847,7 @@ function renderSettings() {
       ${C().map((c) => `<button class="cat-row" data-action="cat-budget" data-id="${esc(c.id)}">
         <span class="pcard-icon" data-color="${c.color}">${esc(c.emoji)}</span><span class="grow">${esc(c.name)}</span>
         <span class="muted small">${c.budget != null ? `${money(c.budget)}/${c.budgetPeriod === 'week' ? 'εβδ.' : 'μήνα'}` : '—'}</span>
-        ${changesBadge(c)}<span class="chev">›</span></button>`).join('')}
+        ${c.offDaily ? '<span title="Εκτός ημερήσιου ορίου">📌</span>' : ''}${changesBadge(c)}<span class="chev">›</span></button>`).join('')}
     </div>
   </section>
 
@@ -1193,6 +1204,8 @@ function openEditor(existing = null, prefill = {}) {
       <div class="total-box" id="totalBox"></div>
       <label class="setting-row"><span>⚡ Απρόοπτο έξοδο<br><span class="muted small">Δεν μετράει στο budget· βγαίνει από το ταμείο απροόπτων</span></span>
         <input type="checkbox" class="toggle" name="unexpected" ${draft.unexpected ? 'checked' : ''}></label>
+      <label class="setting-row"><span>📌 Γενική πληρωμή<br><span class="muted small">Π.χ. συνδρομή ή λογαριασμός: μετράει στο μηνιαίο budget, όχι στο ημερήσιο όριο</span></span>
+        <input type="checkbox" class="toggle" name="offDaily" ${draft.offDaily ? 'checked' : ''}></label>
       <label class="field"><span>Σημείωση</span><textarea name="note" rows="2" placeholder="Προαιρετικό">${esc(draft.note)}</textarea></label>
       ${existing ? '<button type="button" class="btn danger full" id="delPurchase">Διαγραφή αγοράς</button>' : ''}
     </div>
@@ -1362,6 +1375,7 @@ function openEditor(existing = null, prefill = {}) {
         store,
         note: form.note.value.trim().slice(0, 1000),
         unexpected: form.unexpected.checked,
+        offDaily: form.offDaily.checked,
         updatedAt: Date.now(),
         items: rows.map((i) => ({ ...i, name: (i.name || store || catById(i.cat).name).slice(0, 120) })),
       };
@@ -1386,8 +1400,12 @@ async function readClipboardTransaction() {
     toast('Δεν δόθηκε πρόσβαση στο πρόχειρο');
     return null;
   }
+  if (!text || !text.trim()) {
+    toast('Το πρόχειρο είναι άδειο: ο αυτοματισμός «Συναλλαγή» δεν αντέγραψε την πληρωμή (δες Ρυθμίσεις → Apple Pay)');
+    return null;
+  }
   const tx = L.parseTransaction(text);
-  if (!tx) toast('Δεν βρέθηκε ποσό στο πρόχειρο');
+  if (!tx) toast('Δεν βρέθηκε ποσό στο πρόχειρο. Στο «Κείμενο» βάλε τις μεταβλητές Ποσό και Έμπορος, όχι γραμμένες λέξεις');
   return tx;
 }
 
@@ -1568,6 +1586,8 @@ function openCategoryBudget(id) {
       <p class="muted small">Άφησε κενό για κανένα όριο.</p>
       <label class="setting-row"><span>🧺 Δικό της ταμείο<br><span class="muted small">Δεν μετράει στο ημερήσιο ούτε στο γενικό budget, μόνο στο όριο της κατηγορίας. Π.χ. σούπερ μάρκετ για όλη την εβδομάδα.</span></span>
         <input type="checkbox" class="toggle" name="ownFund" ${c.ownFund ? 'checked' : ''}></label>
+      <label class="setting-row"><span>📌 Γενικές πληρωμές<br><span class="muted small">Δεν μετράει στο ημερήσιο όριο, μόνο στο εβδομαδιαίο/μηνιαίο budget. Π.χ. Συνδρομές, λογαριασμοί.</span></span>
+        <input type="checkbox" class="toggle" name="offDaily" ${c.offDaily ? 'checked' : ''}></label>
       ${status ? `<div class="card"><div class="prow-head"><span>${c.budgetPeriod === 'week' ? 'Αυτή την εβδομάδα' : 'Αυτόν τον μήνα'}</span>
         <span><strong>${money(status.spent)}</strong> <span class="muted">/ ${money(status.budget)}</span></span></div>
         <div class="bar"><div class="bar-fill ${level(ratioOf(status.spent, status.budget))}" data-w="${ratioOf(status.spent, status.budget) * 100}"></div></div></div>` : ''}
@@ -1582,8 +1602,9 @@ function openCategoryBudget(id) {
       const cents = t === '' ? null : L.toCents(t);
       if (cents != null && !(cents >= 0)) { toast('Μη έγκυρο ποσό'); return; }
       const budgetChanged = L.setCategoryBudget(c, cents, f.period.value);
-      const fundChanged = c.ownFund !== f.ownFund.checked;
+      const fundChanged = c.ownFund !== f.ownFund.checked || !!c.offDaily !== f.offDaily.checked;
       c.ownFund = f.ownFund.checked;
+      c.offDaily = f.offDaily.checked;
       if (budgetChanged || fundChanged) await save();
       closeSheet();
       render();

@@ -10,6 +10,7 @@ struct CategoryBudgetView: View {
     @State private var amount = ""
     @State private var period: PeriodKind = .month
     @State private var ownFund = false
+    @State private var offDaily = false
     @State private var loaded = false
     @State private var invalid = false
 
@@ -56,6 +57,12 @@ struct CategoryBudgetView: View {
                 Toggle("🧺 Δικό της ταμείο", isOn: $ownFund)
             } footer: {
                 Text("Δεν μετράει στο ημερήσιο ούτε στο γενικό budget, μόνο στο όριο της κατηγορίας. Π.χ. σούπερ μάρκετ για όλη την εβδομάδα.")
+            }
+
+            Section {
+                Toggle("📌 Γενικές πληρωμές", isOn: $offDaily)
+            } footer: {
+                Text("Δεν μετράει στο ημερήσιο όριο, μόνο στο εβδομαδιαίο/μηνιαίο budget. Π.χ. Συνδρομές, λογαριασμοί.")
             }
 
             if let status = currentStatus {
@@ -107,6 +114,7 @@ struct CategoryBudgetView: View {
             amount = Money.inputText(c.budget)
             period = c.budgetPeriod
             ownFund = c.ownFund
+            offDaily = c.offDaily
         }
         .onChange(of: amount) { invalid = false }
     }
@@ -127,6 +135,7 @@ struct CategoryBudgetView: View {
             if let i = d.categories.firstIndex(where: { $0.id == categoryID }) {
                 d.categories[i].setBudget(cents, period: period)
                 d.categories[i].ownFund = ownFund
+                d.categories[i].offDaily = offDaily
             }
         }
         dismiss()

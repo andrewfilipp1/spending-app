@@ -106,14 +106,16 @@ public struct Alloc: Hashable, Sendable {
     public let name: String
     public let pid: String
     public let unexpected: Bool
+    public let offDaily: Bool
 
-    public init(date: String, cents: Int, cat: String, name: String, pid: String, unexpected: Bool = false) {
+    public init(date: String, cents: Int, cat: String, name: String, pid: String, unexpected: Bool = false, offDaily: Bool = false) {
         self.date = date
         self.cents = cents
         self.cat = cat
         self.name = name
         self.pid = pid
         self.unexpected = unexpected
+        self.offDaily = offDaily
     }
 }
 
@@ -152,7 +154,7 @@ public enum Logic {
             for it in p.items {
                 let n = mode == .spread ? max(1, it.days) : 1
                 for (i, c) in split(it.cents, n).enumerated() {
-                    out.append(Alloc(date: Days.add(p.date, i), cents: c, cat: it.cat, name: it.name, pid: p.id, unexpected: p.unexpected))
+                    out.append(Alloc(date: Days.add(p.date, i), cents: c, cat: it.cat, name: it.name, pid: p.id, unexpected: p.unexpected, offDaily: p.offDaily))
                 }
             }
         }
@@ -169,6 +171,13 @@ public enum Logic {
     public static func general(_ allocs: [Alloc], categories: [Category]) -> [Alloc] {
         let own = Set(categories.filter(\.ownFund).map(\.id))
         return own.isEmpty ? allocs : allocs.filter { !own.contains($0.cat) }
+    }
+
+    /// General payments (e.g. subscriptions) count in the week/month/year budgets but not in the daily
+    /// limit: either the purchase is marked so, or its category is.
+    public static func daily(_ allocs: [Alloc], categories: [Category]) -> [Alloc] {
+        let off = Set(categories.filter(\.offDaily).map(\.id))
+        return allocs.filter { !$0.offDaily && !off.contains($0.cat) }
     }
 
     public static func sum<S: Sequence>(_ a: S) -> Int where S.Element == Alloc {
@@ -220,7 +229,8 @@ public enum Logic {
 
     /// How much can be spent today so that a period budget holds: spending before today and amounts
     /// already allocated to later days are subtracted, the rest is shared over the remaining days.
-    public static func dailyAllowance(budget: Int, allocs: [Alloc], kind: PeriodKind, today: String, weekStart: Int = 1) -> Int {
+    /// `paidToday`: today's general payments, already spent but not part of the daily limit.
+    public static func dailyAllowance(budget: Int, allocs: [Alloc], kind: PeriodKind, today: String, weekStart: Int = 1, paidToday: Int = 0) -> Int {
         let p = period(kind, today, weekStart: weekStart)
         var before = 0
         var after = 0
@@ -228,7 +238,7 @@ public enum Logic {
             if a.date >= p.start && a.date < today { before += a.cents } else if a.date > today && a.date <= p.end { after += a.cents }
         }
         let daysLeft = Days.between(today, p.end) + 1
-        let rest = budget - before - after
+        let rest = budget - before - after - paidToday
         return Int((Double(rest) / Double(daysLeft)).rounded(.down))
     }
 
@@ -251,17 +261,20 @@ public enum Logic {
         public let kind: PeriodKind
     }
 
-    /// The most restrictive of all configured budgets, expressed as "allowed today".
+    /// The most restrictive of all configured budgets, expressed as "allowed today", to compare with
+    /// `spentToday` (general payments are left out of the daily limit).
     public static func todayAllowance(_ data: AppData, allocs: [Alloc], today: String) -> Allowance? {
         let s = data.settings
+        let dayAllocs = Logic.daily(allocs, categories: data.categories)
+        let paidToday = sum(allocs.filter { $0.date == today }) - sum(dayAllocs.filter { $0.date == today })
         var opts: [Allowance] = []
         if let d = s.budgets.day {
-            let carried = s.carryOver ? dayBalance(budget: d, allocs: allocs, today: today, since: s.daySince) : 0
+            let carried = s.carryOver ? dayBalance(budget: d, allocs: dayAllocs, today: today, since: s.daySince) : 0
             opts.append(Allowance(cents: d + carried, kind: .day))
         }
         for k in [PeriodKind.week, .month, .year] {
             if let b = s.budgets[k] {
-                opts.append(Allowance(cents: dailyAllowance(budget: b, allocs: allocs, kind: k, today: today, weekStart: s.weekStart), kind: k))
+                opts.append(Allowance(cents: dailyAllowance(budget: b, allocs: allocs, kind: k, today: today, weekStart: s.weekStart, paidToday: paidToday), kind: k))
             }
         }
         return opts.min { $0.cents < $1.cents }
@@ -335,7 +348,7 @@ public enum Alerts {
         var out: [BudgetAlert] = []
 
         if let a = Logic.todayAllowance(data, allocs: general, today: today) {
-            let spent = Logic.sum(general.filter { $0.date == today })
+            let spent = Logic.sum(Logic.daily(general, categories: data.categories).filter { $0.date == today })
             if spent > max(0, a.cents) {
                 out.append(BudgetAlert(key: "day-\(today)", title: "Ξεπέρασες το σημερινό όριο",
                                        body: "Άνοιξε την εφαρμογή για λεπτομέρειες."))

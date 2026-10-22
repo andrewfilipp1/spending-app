@@ -297,3 +297,30 @@ private func pur(_ id: String, _ cents: Int, updated: Double = 0) -> Purchase {
     #expect(try JSONDecoder().decode(SpendingCore.Category.self, from: json).ownFund)
     #expect(try !JSONDecoder().decode(SpendingCore.Category.self, from: Data(#"{"id":"g"}"#.utf8)).ownFund)
 }
+
+@Test func generalPaymentsStayOutOfTheDailyLimit() throws {
+    var data = AppData()
+    data.settings.budgets.day = 1000
+    data.settings.budgets.month = 31000
+    data.settings.carryOver = false
+    let subs = try #require(data.categories.firstIndex { $0.id == "subs" })
+    data.categories[subs].offDaily = true
+    data.purchases = [
+        Purchase(date: "2026-10-15", items: [Item(name: "Καφές", cents: 300, cat: "coffee")]),
+        Purchase(date: "2026-10-16", items: [Item(name: "Netflix", cents: 1200, cat: "subs")]),
+        Purchase(date: "2026-10-16", offDaily: true, items: [Item(name: "Ασφάλεια", cents: 5000, cat: "other")]),
+        Purchase(date: "2026-10-16", items: [Item(name: "Καφές", cents: 400, cat: "coffee")]),
+    ]
+    let allocs = Logic.allocations(data.purchases)
+    #expect(Logic.daily(allocs, categories: data.categories).map(\.cents) == [300, 400])
+    // Month: 3 € before today, 62 € paid today outside the daily limit, 16 days left; the day budget is lower.
+    #expect(Logic.dailyAllowance(budget: 31000, allocs: allocs, kind: .month, today: "2026-10-16", paidToday: 6200) == (31000 - 300 - 6200) / 16)
+    #expect(Logic.todayAllowance(data, allocs: allocs, today: "2026-10-16") == Logic.Allowance(cents: 1000, kind: .day))
+    // Only the 4 € coffee counts against today's 10 €: no alert.
+    #expect(!Alerts.pending(data, today: "2026-10-16").contains { $0.key == "day-2026-10-16" })
+
+    let decoded = try JSONDecoder().decode(AppData.self, from: JSONEncoder().encode(data))
+    #expect(decoded.categories[subs].offDaily)
+    #expect(decoded.purchases.filter(\.offDaily).count == 1)
+    #expect(try !JSONDecoder().decode(Purchase.self, from: Data(#"{"date":"2026-10-16"}"#.utf8)).offDaily)
+}

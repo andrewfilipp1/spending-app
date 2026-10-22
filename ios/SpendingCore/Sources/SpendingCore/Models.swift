@@ -107,9 +107,11 @@ public struct Category: Codable, Identifiable, Hashable, Sendable {
     public var budgetHistory: [BudgetChange]
     /// Own fund (e.g. weekly groceries): kept out of the general budgets, counts only against `budget`.
     public var ownFund: Bool
+    /// General payments (e.g. subscriptions): count in the week/month/year budgets, not in the daily limit.
+    public var offDaily: Bool
 
     public init(id: String = UUID().uuidString, name: String, emoji: String, color: String, budget: Int? = nil,
-                budgetPeriod: PeriodKind = .month, budgetHistory: [BudgetChange] = [], ownFund: Bool = false) {
+                budgetPeriod: PeriodKind = .month, budgetHistory: [BudgetChange] = [], ownFund: Bool = false, offDaily: Bool = false) {
         self.id = id
         self.name = name
         self.emoji = emoji
@@ -118,6 +120,7 @@ public struct Category: Codable, Identifiable, Hashable, Sendable {
         self.budgetPeriod = budgetPeriod
         self.budgetHistory = budgetHistory
         self.ownFund = ownFund
+        self.offDaily = offDaily
     }
 
     public init(from decoder: Decoder) throws {
@@ -130,6 +133,7 @@ public struct Category: Codable, Identifiable, Hashable, Sendable {
         budgetPeriod = (try? c.decodeIfPresent(PeriodKind.self, forKey: .budgetPeriod)) ?? .month
         budgetHistory = (try? c.decodeIfPresent([BudgetChange].self, forKey: .budgetHistory)) ?? []
         ownFund = (try? c.decodeIfPresent(Bool.self, forKey: .ownFund)) ?? false
+        offDaily = (try? c.decodeIfPresent(Bool.self, forKey: .offDaily)) ?? false
     }
 
     /// How many times an existing budget was changed or removed (setting it the first time is not a change).
@@ -175,10 +179,12 @@ public struct Purchase: Codable, Identifiable, Hashable, Sendable {
     public var review: Bool // logged automatically, waiting to be checked / split into items
     /// Comes out of the unexpected-expenses fund instead of the regular budgets.
     public var unexpected: Bool
+    /// General payment (e.g. a subscription): counts in the week/month/year budgets, not in the daily limit.
+    public var offDaily: Bool
     public var items: [Item]
 
     public init(id: String = UUID().uuidString, date: String, store: String = "", note: String = "", source: String = "manual",
-                createdAt: Double = Date().timeIntervalSince1970 * 1000, updatedAt: Double = 0, review: Bool = false, unexpected: Bool = false, items: [Item]) {
+                createdAt: Double = Date().timeIntervalSince1970 * 1000, updatedAt: Double = 0, review: Bool = false, unexpected: Bool = false, offDaily: Bool = false, items: [Item]) {
         self.id = id
         self.date = date
         self.store = store
@@ -188,6 +194,7 @@ public struct Purchase: Codable, Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
         self.review = review
         self.unexpected = unexpected
+        self.offDaily = offDaily
         self.items = items
     }
 
@@ -202,6 +209,7 @@ public struct Purchase: Codable, Identifiable, Hashable, Sendable {
         updatedAt = (try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? 0
         review = (try? c.decodeIfPresent(Bool.self, forKey: .review)) ?? false
         unexpected = (try? c.decodeIfPresent(Bool.self, forKey: .unexpected)) ?? false
+        offDaily = (try? c.decodeIfPresent(Bool.self, forKey: .offDaily)) ?? false
         items = (try? c.decodeIfPresent([LenientItem].self, forKey: .items))?.compactMap(\.value) ?? []
     }
 

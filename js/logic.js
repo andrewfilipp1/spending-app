@@ -86,6 +86,7 @@ export function allocations(purchases, mode = 'spread') {
       splitCents(it.cents, n).forEach((cents, i) => {
         const a = { date: addDays(p.date, i), cents, cat: it.cat, name: it.name, pid: p.id };
         if (p.unexpected) a.unexpected = true;
+        if (p.offDaily) a.offDaily = true;
         out.push(a);
       });
     }
@@ -101,6 +102,13 @@ export const regular = (purchases) => purchases.filter((p) => !p.unexpected);
 export function general(allocs, categories) {
   const own = new Set(categories.filter((c) => c.ownFund).map((c) => c.id));
   return own.size ? allocs.filter((a) => !own.has(a.cat)) : allocs;
+}
+
+// General payments (e.g. subscriptions) count in the week/month/year budgets but not in the daily
+// limit: either the purchase is marked so, or its category is.
+export function daily(allocs, categories) {
+  const off = new Set(categories.filter((c) => c.offDaily).map((c) => c.id));
+  return allocs.filter((a) => !a.offDaily && !off.has(a.cat));
 }
 
 export const inRange = (a, start, end) => a.date >= start && a.date <= end;
@@ -153,7 +161,8 @@ export function periodLabel(kind, start, end) {
 // How much can be spent today so that a period budget is respected.
 // Spending before today and amounts already allocated to later days are subtracted,
 // then the rest is shared equally among the remaining days (today included).
-export function dailyAllowance(budget, allocs, kind, ref, weekStart = 1) {
+// `paidToday`: today's general payments, which are already spent but not part of the daily limit.
+export function dailyAllowance(budget, allocs, kind, ref, weekStart = 1, paidToday = 0) {
   const { start, end } = period(kind, ref, weekStart);
   let before = 0;
   let after = 0;
@@ -162,7 +171,7 @@ export function dailyAllowance(budget, allocs, kind, ref, weekStart = 1) {
     else if (a.date > ref && a.date <= end) after += a.cents;
   }
   const daysLeft = daysBetween(ref, end) + 1;
-  return Math.floor((budget - before - after) / daysLeft);
+  return Math.floor((budget - before - after - paidToday) / daysLeft);
 }
 
 // Days with a daily budget before this date (the feature's release) are not counted,
