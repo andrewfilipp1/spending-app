@@ -33,6 +33,9 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/Oikonomika.app Payload/
+          # ad-hoc signature that carries the entitlements (HealthKit); AltStore/SideStore re-sign with them
+          codesign --force --sign - --entitlements App/Oikonomika.entitlements Payload/Oikonomika.app
+          codesign -d --entitlements - Payload/Oikonomika.app
           zip -qry Oikonomika.ipa Payload
           ls -la Oikonomika.ipa
       - uses: actions/upload-artifact@v5
