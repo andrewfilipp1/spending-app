@@ -7,13 +7,14 @@
 //   ESTIMATE_PROVIDER  claude (default) | gemini
 //   ANTHROPIC_API_KEY  for claude — paid, not used for training
 //   GEMINI_API_KEY     for gemini — has a free tier, where Google may use the photos to improve its products
-//   ESTIMATE_MODEL     default claude-haiku-5-5 / gemini-3.8-flash
+//   ESTIMATE_MODEL     default claude-haiku-5-5 / gemini-3.6-flash
 //   ESTIMATES_PER_DAY  default 40
 // Without the provider's key the endpoint answers 503.
 
 const MAX_IMAGE = 2 * 1024 * 1024; // base64 characters (~1.5 MB JPEG); the app sends ~1024 px
-const MODELS = { claude: 'claude-haiku-5-5', gemini: 'gemini-3.8-flash' };
+const MODELS = { claude: 'claude-haiku-5-5', gemini: 'gemini-3.6-flash' };
 const DEFAULT_PER_DAY = 40;
+const TIMEOUT_MS = 60_000; // a stuck AI service answers "busy" instead of leaving the app waiting
 
 const SYSTEM = `You estimate the nutrition of food in a photo for a personal calorie log.
 List each distinct food or drink you can see, with its estimated portion in grams and its calories, protein, carbohydrates and fat for that portion. Use typical Greek recipes and restaurant portions when a dish is Greek.
@@ -100,12 +101,22 @@ export async function estimate(body, user, env, json) {
   return json(cleanEstimate(parsed));
 }
 
+// fetch with a time limit; a timeout or network failure comes back as a 503-like response.
+async function call(env, url, init) {
+  try {
+    return await (env.fetch || fetch)(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch (err) {
+    console.error('estimate:', url.split('/')[2], err.name);
+    return { ok: false, status: 503, text: async () => err.name };
+  }
+}
+
 // Returns { text } with the JSON answer, or { error: 'refused' | 'busy' | 'upstream' }.
 async function askClaude(image, prompt, env) {
   const model = env.ESTIMATE_MODEL || MODELS.claude;
   // Haiku has no server-side fallback for declined requests; the larger models do.
   const fallback = !model.startsWith('claude-haiku');
-  const res = await (env.fetch || fetch)('https://api.anthropic.com/v1/messages', {
+  const res = await call(env, 'https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -130,7 +141,7 @@ async function askClaude(image, prompt, env) {
   });
   if (!res.ok) {
     console.error('estimate: Claude API', res.status, (await res.text()).slice(0, 500));
-    return { error: res.status === 429 || res.status === 529 ? 'busy' : 'upstream' };
+    return { error: [429, 503, 529].includes(res.status) ? 'busy' : 'upstream' };
   }
   const msg = await res.json();
   if (msg.stop_reason === 'refusal') return { error: 'refused' };
@@ -151,7 +162,7 @@ function geminiSchema(s) {
 
 async function askGemini(image, prompt, env) {
   const model = env.ESTIMATE_MODEL || MODELS.gemini;
-  const res = await (env.fetch || fetch)(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+  const res = await call(env, `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
     body: JSON.stringify({

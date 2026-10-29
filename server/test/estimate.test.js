@@ -65,7 +65,7 @@ test('gemini: same answer shape, upper-case schema types, no additionalPropertie
   const r = await estimate({ image: 'AAAA' }, 'u', env, json);
   assert.deepEqual(r.obj, { items: [{ name: 'Μπανάνα', grams: 120, kcal: 105, protein: 1.3, carbs: 27, fat: 0.4 }], kcal: 105, confidence: 'high', note: '' });
   const { url, init, body } = env.sent[0];
-  assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');
+  assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent');
   assert.equal(init.headers['x-goog-api-key'], 'g-test');
   assert.equal(body.contents[0].parts[0].inline_data.data, 'AAAA');
   const schema = body.generationConfig.response_schema;
@@ -79,4 +79,9 @@ test('gemini: blocked photos, errors and a missing key', async () => {
   assert.equal((await estimate({ image: 'AAAA' }, 'u', geminiEnv({ reply: { candidates: [{ finishReason: 'IMAGE_SAFETY' }] } }), json)).status, 422);
   assert.deepEqual((await estimate({ image: 'AAAA' }, 'u', geminiEnv({ status: 429 }), json)).obj, { error: 'busy' });
   assert.equal((await estimate({ image: 'AAAA' }, 'u', { ...geminiEnv(), GEMINI_API_KEY: '' }, json)).status, 503);
+});
+
+test('a stuck or unreachable AI service answers busy', async () => {
+  const env = { ...fakeEnv(), fetch: async () => { throw Object.assign(new Error('t'), { name: 'TimeoutError' }); } };
+  assert.deepEqual((await estimate({ image: 'AAAA' }, 'u', env, json)).obj, { error: 'busy' });
 });

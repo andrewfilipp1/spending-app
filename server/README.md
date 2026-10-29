@@ -17,7 +17,7 @@ ssh smarthome 'cd /opt/spending-sync/deploy && docker compose up -d --build'
 | `ESTIMATE_PROVIDER` | Key | Μοντέλο (προεπιλογή) | Κόστος για ~4 φωτογραφίες/ημέρα | Ιδιωτικότητα |
 |---|---|---|---|---|
 | `claude` | `ANTHROPIC_API_KEY` (console.anthropic.com) | `claude-haiku-5-5` | ~0,10 €/μήνα | Δεν χρησιμοποιούνται για εκπαίδευση |
-| `gemini` | `GEMINI_API_KEY` (aistudio.google.com) | `gemini-3.8-flash` | 0 € (δωρεάν έκδοση, με όρια) | Στη δωρεάν έκδοση η Google μπορεί να τις χρησιμοποιεί για βελτίωση των προϊόντων της |
+| `gemini` | `GEMINI_API_KEY` (aistudio.google.com) | `gemini-3.6-flash` | 0 € (δωρεάν έκδοση, με όρια) | Στη δωρεάν έκδοση η Google μπορεί να τις χρησιμοποιεί για βελτίωση των προϊόντων της |
 
 Άλλο μοντέλο: `ESTIMATE_MODEL` (π.χ. `claude-opus-5-5`, πιο ακριβές, ~3–4 €/μήνα). Όριο: `ESTIMATES_PER_DAY` (40).
 
