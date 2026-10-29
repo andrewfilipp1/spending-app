@@ -99,8 +99,8 @@ final class Health {
             return HKQuantitySample(type: type, quantity: HKQuantity(unit: unit, doubleValue: value), start: date, end: date,
                                     metadata: [HKMetadataKeyExternalUUID: m.id, HKMetadataKeyFoodType: m.name])
         }
-        let store = store
-        remove(m.id) { if !samples.isEmpty { store.save(samples) { _, _ in } } }
+        let healthStore = store
+        remove(m.id) { if !samples.isEmpty { healthStore.save(samples) { _, _ in } } }
     }
 
     func deleteMeal(_ id: String) {
