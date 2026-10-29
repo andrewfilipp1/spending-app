@@ -352,37 +352,46 @@ export function canon(v) {
 
 const stampOf = (p) => Math.max(p.updatedAt || 0, p.createdAt || 0);
 
+// Lists merged record by record. Ids are unique across them, so they share `deleted`.
+const RECORDS = ['purchases', 'meals', 'foods'];
+
 // Marks what changed between the last saved data and the new data, so another device can tell
-// which copy is newer: settings/categories get a timestamp, edited purchases get updatedAt and
-// removed purchases are remembered in `deleted`. Mutates and returns `next`.
+// which copy is newer: settings/categories/nutrition get a timestamp, edited records (purchases,
+// meals, foods) get updatedAt and removed ones are remembered in `deleted`. Mutates and returns `next`.
 export function stampChanges(prev, next, now = Date.now()) {
   if (!prev) return next;
   if (canon(prev.settings) !== canon(next.settings)) next.settingsUpdatedAt = now;
   if (canon(prev.categories) !== canon(next.categories)) next.categoriesUpdatedAt = now;
-  const before = new Map(prev.purchases.map((p) => [p.id, p]));
-  const body = (p) => canon({ ...p, updatedAt: 0 });
-  for (const p of next.purchases) {
-    const q = before.get(p.id);
-    if (!q || body(q) !== body(p)) p.updatedAt = now;
-    before.delete(p.id);
-  }
+  if (canon(prev.nutrition) !== canon(next.nutrition)) next.nutritionUpdatedAt = now;
   next.deleted = { ...(next.deleted || {}) };
-  for (const id of before.keys()) next.deleted[id] = now;
+  const body = (p) => canon({ ...p, updatedAt: 0 });
+  for (const list of RECORDS) {
+    const before = new Map((prev[list] || []).map((p) => [p.id, p]));
+    for (const p of next[list] || []) {
+      const q = before.get(p.id);
+      if (!q || body(q) !== body(p)) p.updatedAt = now;
+      before.delete(p.id);
+    }
+    for (const id of before.keys()) next.deleted[id] = now;
+  }
   return next;
 }
 
-// Combines this device's data with the account's data. Purchases merge one by one (newest edit
+// Combines this device's data with the account's data. Purchases, meals and foods merge one by one (newest edit
 // wins, deletions win over older edits); settings and categories take the most recently changed
-// copy. Ties go to the server copy, so a new device adopts the account's data.
+// copy, and so does nutrition. Ties go to the server copy, so a new device adopts the account's data.
 export function mergeData(local, remote, now = Date.now()) {
   const deleted = { ...(remote.deleted || {}) };
   for (const [id, t] of Object.entries(local.deleted || {})) deleted[id] = Math.max(deleted[id] || 0, t);
-  const byId = new Map(remote.purchases.map((p) => [p.id, p]));
-  for (const p of local.purchases) {
-    const r = byId.get(p.id);
-    if (!r || stampOf(p) > stampOf(r)) byId.set(p.id, p);
-  }
-  const purchases = [...byId.values()].filter((p) => !((deleted[p.id] || 0) >= stampOf(p)));
+  const records = (list) => {
+    const byId = new Map((remote[list] || []).map((p) => [p.id, p]));
+    for (const p of local[list] || []) {
+      const r = byId.get(p.id);
+      if (!r || stampOf(p) > stampOf(r)) byId.set(p.id, p);
+    }
+    return [...byId.values()].filter((p) => !((deleted[p.id] || 0) >= stampOf(p)));
+  };
+  const purchases = records('purchases');
 
   const localCats = (local.categoriesUpdatedAt || 0) > (remote.categoriesUpdatedAt || 0);
   const categories = [...(localCats ? local.categories : remote.categories)];
@@ -400,6 +409,100 @@ export function mergeData(local, remote, now = Date.now()) {
     categories,
     categoriesUpdatedAt: Math.max(local.categoriesUpdatedAt || 0, remote.categoriesUpdatedAt || 0),
     purchases,
+    meals: records('meals'),
+    foods: records('foods'),
+    nutrition: (local.nutritionUpdatedAt || 0) > (remote.nutritionUpdatedAt || 0) ? local.nutrition : remote.nutrition,
+    nutritionUpdatedAt: Math.max(local.nutritionUpdatedAt || 0, remote.nutritionUpdatedAt || 0),
     deleted: Object.fromEntries(Object.entries(deleted).filter(([, t]) => t > yearAgo)),
   };
+}
+
+// ---------- nutrition ----------
+
+export const MEALS = [['breakfast', 'Πρωινό'], ['lunch', 'Μεσημεριανό'], ['dinner', 'Βραδινό'], ['snack', 'Σνακ']];
+export const MACROS = ['protein', 'carbs', 'fat'];
+
+const round1 = (x) => Math.round(x * 10) / 10;
+
+// The meal of the day for a given time (default: now), for a new entry.
+export function mealFor(hour = new Date().getHours()) {
+  if (hour >= 5 && hour < 11) return 'breakfast';
+  if (hour >= 12 && hour < 16) return 'lunch';
+  if (hour >= 19 && hour < 23) return 'dinner';
+  return 'snack';
+}
+
+// What `qty` servings of a library food add up to.
+export function fromFood(food, qty = 1) {
+  return {
+    name: food.name, foodId: food.id, qty,
+    kcal: Math.round(food.kcal * qty),
+    protein: round1(food.protein * qty), carbs: round1(food.carbs * qty), fat: round1(food.fat * qty),
+  };
+}
+
+// Totals of the meals eaten on `date`.
+export function dayNutrition(meals, date) {
+  const t = { kcal: 0, protein: 0, carbs: 0, fat: 0 };
+  for (const m of meals) {
+    if (m.date !== date) continue;
+    t.kcal += m.kcal;
+    for (const k of MACROS) t[k] += m[k];
+  }
+  for (const k of MACROS) t[k] = round1(t[k]);
+  return t;
+}
+
+// The day's calorie goal. With health data (from the watch): a typical day's resting energy plus
+// what was burned moving today, plus the adjustment (e.g. -400 to lose weight). Otherwise the fixed goal.
+export function kcalGoal(nutrition, health) {
+  if (nutrition?.useHealth && health?.restingKcal > 0) {
+    return Math.max(0, Math.round(health.restingKcal + (health.activeKcal || 0) + (nutrition.kcalAdjust || 0)));
+  }
+  return nutrition?.kcalGoal ?? null;
+}
+
+// Library foods and earlier meals, most used first, for quick entry. Same names count once (newest wins).
+export function recentFoods(meals, foods, limit = 20) {
+  const byKey = new Map();
+  for (const f of foods) byKey.set(itemKey(f.name), { ...fromFood(f), serving: f.serving, count: 0, last: '' });
+  for (const m of [...meals].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))) {
+    const k = itemKey(m.name);
+    const e = byKey.get(k);
+    if (e?.foodId) {
+      e.count++;
+      e.last = m.date;
+    } else {
+      byKey.set(k, { name: m.name, foodId: null, qty: 1, kcal: m.kcal, protein: m.protein, carbs: m.carbs, fat: m.fat,
+        serving: '', count: (e?.count || 0) + 1, last: m.date });
+    }
+  }
+  return [...byKey.values()].sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : -1)).slice(0, limit);
+}
+
+// What food bought costs: per category, the linked items' cost against the meals eaten from them.
+// An item eaten over several meals counts once.
+export function foodCosts(meals, purchases) {
+  const items = new Map();
+  for (const p of purchases) for (const i of p.items) items.set(i.id, i);
+  const byCat = new Map();
+  const counted = new Set();
+  for (const m of meals) {
+    const i = m.itemId && items.get(m.itemId);
+    if (!i) continue;
+    const c = byCat.get(i.cat) || { cat: i.cat, cents: 0, kcal: 0, protein: 0 };
+    if (!counted.has(i.id)) {
+      counted.add(i.id);
+      c.cents += i.cents;
+    }
+    c.kcal += m.kcal;
+    c.protein += m.protein;
+    byCat.set(i.cat, c);
+  }
+  return [...byCat.values()].map((c) => ({
+    ...c,
+    protein: round1(c.protein),
+    per1000kcal: c.kcal > 0 ? Math.round((c.cents * 1000) / c.kcal) : null,
+    per10gProtein: c.protein > 0 ? Math.round((c.cents * 10) / c.protein) : null,
+  }));
 }

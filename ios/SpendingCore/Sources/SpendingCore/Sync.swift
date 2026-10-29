@@ -59,37 +59,39 @@ public enum SyncError: Error, Equatable, Sendable {
 
 // MARK: - stamping & merging
 
-public enum SyncMerge {
-    static func stamp(_ p: Purchase) -> Double { max(p.updatedAt, p.createdAt) }
+/// A list entry that syncs on its own (newest edit wins). Ids are unique across lists, so they share `deleted`.
+protocol SyncRecord: Equatable {
+    var id: String { get }
+    var createdAt: Double { get }
+    var updatedAt: Double { get set }
+}
 
-    /// Marks what changed since the last save so other devices can tell which copy is newer.
-    public static func stampChanges(prev: AppData?, next: inout AppData, now: Double) {
-        guard let prev else { return }
-        if prev.settings != next.settings { next.settingsUpdatedAt = now }
-        if prev.categories != next.categories { next.categoriesUpdatedAt = now }
-        var before = Dictionary(prev.purchases.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for i in next.purchases.indices {
-            let p = next.purchases[i]
+extension Purchase: SyncRecord {}
+extension Meal: SyncRecord {}
+extension Food: SyncRecord {}
+
+public enum SyncMerge {
+    static func stamp(_ p: some SyncRecord) -> Double { max(p.updatedAt, p.createdAt) }
+
+    private static func stampRecords<R: SyncRecord>(prev: [R], next: inout [R], deleted: inout [String: Double], now: Double) {
+        var before = Dictionary(prev.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for i in next.indices {
+            let p = next[i]
             var q = before.removeValue(forKey: p.id)
             q?.updatedAt = p.updatedAt
-            if q != p { next.purchases[i].updatedAt = now }
+            if q != p { next[i].updatedAt = now }
         }
-        for id in before.keys { next.deleted[id] = now }
+        for id in before.keys { deleted[id] = now }
     }
 
-    /// Purchases merge one by one (newest edit wins, deletions win over older edits); settings and
-    /// categories take the most recently changed copy; ties go to the server copy.
-    public static func merge(local: AppData, remote: AppData, now: Double) -> AppData {
-        var deleted = remote.deleted
-        for (id, t) in local.deleted { deleted[id] = max(deleted[id] ?? 0, t) }
-
-        var byId: [String: Purchase] = [:]
+    private static func mergeRecords<R: SyncRecord>(local: [R], remote: [R], deleted: [String: Double]) -> [R] {
+        var byId: [String: R] = [:]
         var order: [String] = []
-        for p in remote.purchases where byId[p.id] == nil {
+        for p in remote where byId[p.id] == nil {
             byId[p.id] = p
             order.append(p.id)
         }
-        for p in local.purchases {
+        for p in local {
             if let r = byId[p.id] {
                 if stamp(p) > stamp(r) { byId[p.id] = p }
             } else {
@@ -97,7 +99,27 @@ public enum SyncMerge {
                 order.append(p.id)
             }
         }
-        let purchases = order.compactMap { byId[$0] }.filter { (deleted[$0.id] ?? 0) < stamp($0) }
+        return order.compactMap { byId[$0] }.filter { (deleted[$0.id] ?? 0) < stamp($0) }
+    }
+
+    /// Marks what changed since the last save so other devices can tell which copy is newer.
+    public static func stampChanges(prev: AppData?, next: inout AppData, now: Double) {
+        guard let prev else { return }
+        if prev.settings != next.settings { next.settingsUpdatedAt = now }
+        if prev.categories != next.categories { next.categoriesUpdatedAt = now }
+        if prev.nutrition != next.nutrition { next.nutritionUpdatedAt = now }
+        stampRecords(prev: prev.purchases, next: &next.purchases, deleted: &next.deleted, now: now)
+        stampRecords(prev: prev.meals, next: &next.meals, deleted: &next.deleted, now: now)
+        stampRecords(prev: prev.foods, next: &next.foods, deleted: &next.deleted, now: now)
+    }
+
+    /// Purchases, meals and foods merge one by one (newest edit wins, deletions win over older edits);
+    /// settings, categories and nutrition take the most recently changed copy; ties go to the server copy.
+    public static func merge(local: AppData, remote: AppData, now: Double) -> AppData {
+        var deleted = remote.deleted
+        for (id, t) in local.deleted { deleted[id] = max(deleted[id] ?? 0, t) }
+
+        let purchases = mergeRecords(local: local.purchases, remote: remote.purchases, deleted: deleted)
 
         let localCats = local.categoriesUpdatedAt > remote.categoriesUpdatedAt
         var categories = localCats ? local.categories : remote.categories
@@ -111,6 +133,10 @@ public enum SyncMerge {
                           categories: categories, purchases: purchases)
         out.settingsUpdatedAt = max(local.settingsUpdatedAt, remote.settingsUpdatedAt)
         out.categoriesUpdatedAt = max(local.categoriesUpdatedAt, remote.categoriesUpdatedAt)
+        out.meals = mergeRecords(local: local.meals, remote: remote.meals, deleted: deleted)
+        out.foods = mergeRecords(local: local.foods, remote: remote.foods, deleted: deleted)
+        out.nutrition = local.nutritionUpdatedAt > remote.nutritionUpdatedAt ? local.nutrition : remote.nutrition
+        out.nutritionUpdatedAt = max(local.nutritionUpdatedAt, remote.nutritionUpdatedAt)
         let yearAgo = now - 365 * 86_400_000
         out.deleted = deleted.filter { $0.value > yearAgo }
         return out

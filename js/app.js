@@ -4,7 +4,7 @@ import { deriveKey, encryptJSON, decryptJSON, randomSalt, PBKDF2_ITERATIONS } fr
 import * as Sync from './sync.js';
 
 const APP_VERSION = self.APP_VERSION || 'dev';
-const SCHEMA = 2;
+const SCHEMA = 3;
 
 const DEFAULT_CATEGORIES = [
   { id: 'groceries', name: 'Σούπερ μάρκετ', emoji: '🛒', color: '#16a34a', budget: null },
@@ -121,7 +121,69 @@ function defaultData() {
     settings: { budgets: { day: null, week: null, month: null, year: null }, weekStart: 1, currency: 'EUR', autoLockSec: 60 },
     categories: structuredClone(DEFAULT_CATEGORIES).map((c) => ({ ...c, budgetPeriod: 'month', budgetHistory: [] })),
     purchases: [],
+    meals: [],
+    foods: [],
+    nutrition: sanitizeNutrition({}),
   };
+}
+
+const num = (v, min, max, dflt = 0) => (Number.isFinite(v) && v >= min && v <= max ? v : dflt);
+const optInt = (v, min, max) => (Number.isInteger(v) && v >= min && v <= max ? v : null);
+const macro = (v) => Math.round(num(v, 0, 2000) * 10) / 10;
+const MEAL_KEYS = new Set(L.MEALS.map(([k]) => k));
+const MEAL_SOURCES = new Set(['manual', 'food', 'photo', 'purchase']);
+
+function sanitizeNutrition(n) {
+  n = n && typeof n === 'object' ? n : {};
+  return {
+    kcalGoal: optInt(n.kcalGoal, 500, 10000),
+    proteinGoal: optInt(n.proteinGoal, 0, 1000),
+    carbsGoal: optInt(n.carbsGoal, 0, 1000),
+    fatGoal: optInt(n.fatGoal, 0, 1000),
+    useHealth: n.useHealth === true,
+    kcalAdjust: int(n.kcalAdjust, -2000, 2000, 0),
+    aiPhotos: n.aiPhotos === true,
+  };
+}
+
+// Library foods: values per serving.
+function sanitizeFoods(list) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : [])
+    .filter((f) => f && typeof f.name === 'string' && f.name.trim())
+    .map((f) => ({
+      id: str(f.id, 64) || uid(),
+      name: str(f.name, 120),
+      serving: str(f.serving, 60) || '1 μερίδα',
+      kcal: Math.round(num(f.kcal, 0, 20000)),
+      protein: macro(f.protein), carbs: macro(f.carbs), fat: macro(f.fat),
+      createdAt: num(f.createdAt, 0, Infinity),
+      updatedAt: num(f.updatedAt, 0, Infinity),
+    }))
+    .filter((f) => !seen.has(f.id) && seen.add(f.id));
+}
+
+// Meals eaten: values are the totals for the quantity eaten.
+function sanitizeMeals(list) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : [])
+    .filter((m) => m && isISODate(m.date))
+    .map((m) => ({
+      id: str(m.id, 64) || uid(),
+      date: m.date,
+      meal: MEAL_KEYS.has(m.meal) ? m.meal : 'snack',
+      name: str(m.name, 120) || 'Φαγητό',
+      qty: num(m.qty, 0.01, 100, 1),
+      kcal: Math.round(num(m.kcal, 0, 20000)),
+      protein: macro(m.protein), carbs: macro(m.carbs), fat: macro(m.fat),
+      source: MEAL_SOURCES.has(m.source) ? m.source : 'manual',
+      foodId: str(m.foodId, 64) || null,
+      purchaseId: str(m.purchaseId, 64) || null,
+      itemId: str(m.itemId, 64) || null,
+      createdAt: num(m.createdAt, 0, Infinity),
+      updatedAt: num(m.updatedAt, 0, Infinity),
+    }))
+    .filter((m) => !seen.has(m.id) && seen.add(m.id));
 }
 
 // Rebuilds the data from known fields only, so a corrupted or crafted backup cannot inject anything.
@@ -206,7 +268,12 @@ function sanitize(raw) {
   const stamp = (v) => (Number.isFinite(v) ? v : 0);
   return {
     schema: SCHEMA, settings, categories, purchases, deleted,
+    // Schema 3: nutrition (meals eaten, a food library and goals).
+    meals: sanitizeMeals(raw.meals),
+    foods: sanitizeFoods(raw.foods),
+    nutrition: sanitizeNutrition(raw.nutrition),
     settingsUpdatedAt: stamp(raw.settingsUpdatedAt), categoriesUpdatedAt: stamp(raw.categoriesUpdatedAt),
+    nutritionUpdatedAt: stamp(raw.nutritionUpdatedAt),
   };
 }
 

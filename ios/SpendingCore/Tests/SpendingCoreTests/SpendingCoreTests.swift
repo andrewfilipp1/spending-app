@@ -324,3 +324,74 @@ private func pur(_ id: String, _ cents: Int, updated: Double = 0) -> Purchase {
     #expect(decoded.purchases.filter(\.offDaily).count == 1)
     #expect(try !JSONDecoder().decode(Purchase.self, from: Data(#"{"date":"2026-10-16"}"#.utf8)).offDaily)
 }
+
+private func meal(_ id: String, _ date: String, _ kcal: Int, name: String? = nil, foodId: String? = nil, itemId: String? = nil, protein: Double = 10) -> Meal {
+    Meal(id: id, date: date, meal: .lunch, name: name ?? id, kcal: kcal, protein: protein, carbs: 20, fat: 5, foodId: foodId, itemId: itemId, createdAt: 1)
+}
+
+@Test func nutritionTotalsScalingAndMealOfTheHour() {
+    let meals = [meal("a", "2026-10-29", 300), meal("b", "2026-10-29", 450), meal("c", "2026-10-28", 900)]
+    #expect(NutritionLogic.day(meals, "2026-10-29") == NutritionTotals(kcal: 750, protein: 20, carbs: 40, fat: 10))
+    #expect(NutritionLogic.day(meals, "2026-10-01") == NutritionTotals())
+    let yogurt = Food(id: "y", name: "Γιαούρτι", kcal: 150, protein: 8.3, carbs: 6, fat: 10)
+    let m = Meal(food: yogurt, qty: 1.5, date: "2026-10-29", meal: .breakfast)
+    #expect(m.kcal == 225 && m.protein == 12.5 && m.carbs == 9 && m.fat == 15 && m.foodId == "y")
+    #expect(MealKind.at(hour: 8) == .breakfast && MealKind.at(hour: 14) == .lunch && MealKind.at(hour: 21) == .dinner && MealKind.at(hour: 17) == .snack)
+}
+
+@Test func nutritionGoalFollowsTheWatch() {
+    var n = Nutrition()
+    n.kcalGoal = 2000
+    let h = HealthEnergy(restingKcal: 1700, activeKcal: 500)
+    #expect(NutritionLogic.kcalGoal(n, health: h) == 2000)
+    n.useHealth = true
+    n.kcalAdjust = -300
+    #expect(NutritionLogic.kcalGoal(n, health: h) == 1900)
+    #expect(NutritionLogic.kcalGoal(n, health: nil) == 2000)
+}
+
+@Test func recentFoodsCountRepeats() {
+    let foods = [Food(id: "y", name: "Γιαούρτι", serving: "200 g", kcal: 150, protein: 8, carbs: 6, fat: 10)]
+    let meals = [meal("a", "2026-10-27", 300, name: "σουβλάκι"), meal("b", "2026-10-28", 320, name: "Σουβλάκι"),
+                 meal("c", "2026-10-28", 150, name: "Γιαούρτι", foodId: "y")]
+    #expect(NutritionLogic.recent(meals, foods: foods).map { "\($0.name):\($0.count):\($0.kcal)" } == ["Σουβλάκι:2:320", "Γιαούρτι:1:150"])
+}
+
+@Test func foodCostsCountAnItemOnce() {
+    let p = Purchase(id: "p", date: "2026-10-28", items: [Item(id: "i1", name: "Κοτόπουλο", cents: 900, cat: "groceries", days: 2),
+                                                          Item(id: "i2", name: "Σουβλάκι", cents: 700, cat: "food")])
+    let meals = [meal("a", "2026-10-28", 500, itemId: "i1", protein: 45), meal("b", "2026-10-29", 500, itemId: "i1", protein: 45),
+                 meal("c", "2026-10-28", 700, itemId: "i2"), meal("d", "2026-10-28", 100)]
+    let c = Dictionary(uniqueKeysWithValues: NutritionLogic.costs(meals, purchases: [p]).map { ($0.cat, $0) })
+    #expect(c["groceries"]?.cents == 900 && c["groceries"]?.kcal == 1000 && c["groceries"]?.per1000kcal == 900 && c["groceries"]?.per10gProtein == 100)
+    #expect(c["food"]?.per1000kcal == 1000)
+}
+
+@Test func mealsSyncOneByOneAndSurviveOlderApps() {
+    var prev = AppData()
+    prev.meals = [meal("m1", "2026-10-29", 300), meal("m2", "2026-10-29", 200)]
+    prev.nutrition.kcalGoal = 2000
+    var next = prev
+    next.meals[0].kcal = 350
+    next.meals.remove(at: 1)
+    next.foods = [Food(id: "f1", name: "Αυγό", kcal: 70, createdAt: 1)]
+    next.nutrition.kcalGoal = 2200
+    SyncMerge.stampChanges(prev: prev, next: &next, now: 50)
+    #expect(next.meals.map { "\($0.id):\(Int($0.updatedAt))" } == ["m1:50"])
+    #expect(next.foods[0].updatedAt == 50 && next.deleted == ["m2": 50] && next.nutritionUpdatedAt == 50)
+
+    var old = AppData() // an app version without nutrition
+    old.settingsUpdatedAt = 60
+    let m = SyncMerge.merge(local: next, remote: old, now: 100)
+    #expect(m.meals.map(\.id) == ["m1"] && m.foods.map(\.id) == ["f1"] && m.nutrition.kcalGoal == 2200)
+}
+
+@Test func readsWebNutritionData() throws {
+    let json = #"{"schema":3,"purchases":[],"meals":[{"id":"a","date":"2026-10-29","meal":"dinner","name":"Μουσακάς","qty":1,"kcal":650.4,"protein":30,"carbs":40,"fat":38,"source":"photo","foodId":null},{"date":"bad"},{"id":"b","date":"2026-10-29","meal":"brunch","kcal":-5}],"foods":[{"name":""},{"id":"f","name":"Αυγό","kcal":70,"fat":4.96}],"nutrition":{"kcalGoal":50,"useHealth":true,"kcalAdjust":-300},"nutritionUpdatedAt":7}"#
+    let d = try JSONDecoder().decode(AppData.self, from: Data(json.utf8)).sanitized()
+    #expect(d.meals.map { "\($0.id):\($0.meal.rawValue):\($0.kcal):\($0.source)" } == ["a:dinner:650:photo", "b:snack:0:manual"])
+    #expect(d.meals[1].name == "Φαγητό")
+    #expect(d.foods.map { "\($0.name):\($0.serving):\($0.fat)" } == ["Αυγό:1 μερίδα:5.0"])
+    #expect(d.nutrition.kcalGoal == nil && d.nutrition.useHealth && d.nutrition.kcalAdjust == -300 && d.nutritionUpdatedAt == 7)
+    #expect(d.schema == 3)
+}

@@ -193,3 +193,67 @@ test('general payments stay out of the daily limit but count in the month', () =
   assert.equal(L.dailyAllowance(31000, allocs, 'month', '2026-10-16', 1, 5000), Math.floor((31000 - 1500 - 5000) / 16));
   assert.equal(L.daily(allocs, [{ id: 'subs' }]).length, 2);
 });
+
+const meal = (id, date, kcal, extra = {}) => ({ id, date, meal: 'lunch', name: id, qty: 1, kcal, protein: 10, carbs: 20, fat: 5, createdAt: 1, ...extra });
+
+test('nutrition: day totals, scaling a food, meal for the hour', () => {
+  const meals = [meal('a', '2026-10-29', 300), meal('b', '2026-10-29', 450), meal('c', '2026-10-28', 900)];
+  assert.deepEqual(L.dayNutrition(meals, '2026-10-29'), { kcal: 750, protein: 20, carbs: 40, fat: 10 });
+  assert.deepEqual(L.dayNutrition(meals, '2026-10-01'), { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+  const yogurt = { id: 'y', name: 'Γιαούρτι', kcal: 150, protein: 8.3, carbs: 6, fat: 10 };
+  assert.deepEqual(L.fromFood(yogurt, 1.5), { name: 'Γιαούρτι', foodId: 'y', qty: 1.5, kcal: 225, protein: 12.5, carbs: 9, fat: 15 });
+  assert.equal(L.mealFor(8), 'breakfast');
+  assert.equal(L.mealFor(14), 'lunch');
+  assert.equal(L.mealFor(21), 'dinner');
+  assert.equal(L.mealFor(17), 'snack');
+});
+
+test('nutrition: the goal follows the watch when enabled', () => {
+  assert.equal(L.kcalGoal({ kcalGoal: 2000 }, { restingKcal: 1700, activeKcal: 500 }), 2000);
+  assert.equal(L.kcalGoal({ kcalGoal: 2000, useHealth: true, kcalAdjust: -300 }, { restingKcal: 1700, activeKcal: 500 }), 1900);
+  assert.equal(L.kcalGoal({ kcalGoal: 2000, useHealth: true }, null), 2000); // no health data yet
+  assert.equal(L.kcalGoal({ kcalGoal: null }), null);
+});
+
+test('nutrition: recent foods count repeats and keep the library values', () => {
+  const foods = [{ id: 'y', name: 'Γιαούρτι', serving: '200 g', kcal: 150, protein: 8, carbs: 6, fat: 10 }];
+  const meals = [meal('a', '2026-10-27', 300, { name: 'σουβλάκι' }), meal('b', '2026-10-28', 320, { name: 'Σουβλάκι' }),
+    meal('c', '2026-10-28', 150, { name: 'Γιαούρτι', foodId: 'y' })];
+  const r = L.recentFoods(meals, foods);
+  assert.deepEqual(r.map((f) => [f.name, f.count, f.kcal]), [['Σουβλάκι', 2, 320], ['Γιαούρτι', 1, 150]]);
+});
+
+test('nutrition: food costs per category, an item eaten twice counts once', () => {
+  const purchases = [{ id: 'p', date: '2026-10-28', items: [
+    { id: 'i1', name: 'Κοτόπουλο', cents: 900, cat: 'groceries', days: 2 },
+    { id: 'i2', name: 'Σουβλάκι', cents: 700, cat: 'food', days: 1 },
+  ] }];
+  const meals = [meal('a', '2026-10-28', 500, { itemId: 'i1', protein: 45 }), meal('b', '2026-10-29', 500, { itemId: 'i1', protein: 45 }),
+    meal('c', '2026-10-28', 700, { itemId: 'i2' }), meal('d', '2026-10-28', 100)];
+  const c = Object.fromEntries(L.foodCosts(meals, purchases).map((x) => [x.cat, x]));
+  assert.deepEqual([c.groceries.cents, c.groceries.kcal, c.groceries.per1000kcal, c.groceries.per10gProtein], [900, 1000, 900, 100]);
+  assert.deepEqual([c.food.cents, c.food.per1000kcal], [700, 1000]);
+});
+
+test('sync: meals and foods merge one by one, nutrition goals take the newest copy', () => {
+  const prev = { ...base(), meals: [meal('m1', '2026-10-29', 300), meal('m2', '2026-10-29', 200)], foods: [], nutrition: { kcalGoal: 2000 } };
+  const next = structuredClone(prev);
+  next.meals[0].kcal = 350;
+  next.meals.splice(1, 1);
+  next.foods.push({ id: 'f1', name: 'Αυγό', kcal: 70, protein: 6, carbs: 0, fat: 5, createdAt: 1 });
+  next.nutrition.kcalGoal = 2200;
+  L.stampChanges(prev, next, 50);
+  assert.deepEqual(next.meals.map((m) => [m.id, m.updatedAt]), [['m1', 50]]);
+  assert.equal(next.foods[0].updatedAt, 50);
+  assert.deepEqual(next.deleted, { m2: 50 });
+  assert.equal(next.nutritionUpdatedAt, 50);
+
+  // An older app version (no meals in its data) must not wipe the meals on the other device.
+  const old = { ...base(), settingsUpdatedAt: 60 };
+  const m = L.mergeData(next, old, 100);
+  assert.deepEqual(m.meals.map((x) => x.id), ['m1']);
+  assert.deepEqual(m.foods.map((x) => x.id), ['f1']);
+  assert.equal(m.nutrition.kcalGoal, 2200);
+  const back = L.mergeData(old, m, 100);
+  assert.equal(back.nutrition.kcalGoal, 2200);
+});

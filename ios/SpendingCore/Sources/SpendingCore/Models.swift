@@ -238,16 +238,35 @@ private struct LenientCategory: Decodable {
     }
 }
 
+private struct LenientMeal: Decodable {
+    let value: Meal?
+    init(from decoder: Decoder) throws {
+        value = try? Meal(from: decoder)
+    }
+}
+
+private struct LenientFood: Decodable {
+    let value: Food?
+    init(from decoder: Decoder) throws {
+        value = try? Food(from: decoder)
+    }
+}
+
 public struct AppData: Codable, Equatable, Sendable {
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     public var schema: Int
     public var settings: Settings
     public var categories: [Category]
     public var purchases: [Purchase]
-    // Sync bookkeeping (see SyncMerge): when settings/categories last changed, and deleted purchase ids.
+    // Schema 3: nutrition.
+    public var meals: [Meal] = []
+    public var foods: [Food] = []
+    public var nutrition = Nutrition()
+    // Sync bookkeeping (see SyncMerge): when settings/categories/nutrition last changed, and deleted record ids.
     public var settingsUpdatedAt: Double = 0
     public var categoriesUpdatedAt: Double = 0
+    public var nutritionUpdatedAt: Double = 0
     public var deleted: [String: Double] = [:]
 
     public init(schema: Int = AppData.schemaVersion, settings: Settings = Settings(), categories: [Category] = AppData.defaultCategories, purchases: [Purchase] = []) {
@@ -263,8 +282,12 @@ public struct AppData: Codable, Equatable, Sendable {
         settings = (try? c.decodeIfPresent(Settings.self, forKey: .settings)) ?? Settings()
         categories = (try? c.decodeIfPresent([LenientCategory].self, forKey: .categories))?.compactMap(\.value) ?? AppData.defaultCategories
         purchases = (try? c.decodeIfPresent([LenientPurchase].self, forKey: .purchases))?.compactMap(\.value) ?? []
+        meals = (try? c.decodeIfPresent([LenientMeal].self, forKey: .meals))?.compactMap(\.value) ?? []
+        foods = (try? c.decodeIfPresent([LenientFood].self, forKey: .foods))?.compactMap(\.value) ?? []
+        nutrition = (try? c.decodeIfPresent(Nutrition.self, forKey: .nutrition)) ?? Nutrition()
         settingsUpdatedAt = (try? c.decodeIfPresent(Double.self, forKey: .settingsUpdatedAt)) ?? 0
         categoriesUpdatedAt = (try? c.decodeIfPresent(Double.self, forKey: .categoriesUpdatedAt)) ?? 0
+        nutritionUpdatedAt = (try? c.decodeIfPresent(Double.self, forKey: .nutritionUpdatedAt)) ?? 0
         deleted = (try? c.decodeIfPresent([String: Double].self, forKey: .deleted)) ?? [:]
     }
 
@@ -349,6 +372,10 @@ public struct AppData: Codable, Equatable, Sendable {
             }
             return p.items.isEmpty ? nil : p
         }
+        var mealIds = Set<String>(), foodIds = Set<String>()
+        d.meals = meals.compactMap { $0.sanitized() }.filter { mealIds.insert($0.id).inserted }
+        d.foods = foods.compactMap { $0.sanitized() }.filter { foodIds.insert($0.id).inserted }
+        d.nutrition = nutrition.sanitized()
         return d
     }
 }
