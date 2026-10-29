@@ -23,6 +23,9 @@ struct SettingsView: View {
             Form {
                 AccountSection()
                 budgetSection
+                Section {
+                    NavigationLink { NutritionSettingsView() } label: { Label("Διατροφή", systemImage: "fork.knife") }
+                }
                 categoryBudgetSection
                 itemsSection
                 categoriesSection

@@ -18,6 +18,19 @@ enum Fmt {
     static func money(_ cents: Int) -> String {
         currency.string(from: NSNumber(value: Double(cents) / 100)) ?? "\(cents)"
     }
+
+    static let whole: NumberFormatter = {
+        let f = NumberFormatter()
+        f.locale = Locale(identifier: "el_GR")
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 0
+        return f
+    }()
+
+    /// Calories and other whole numbers with Greek grouping (1.380).
+    static func kcal(_ v: Int) -> String {
+        whole.string(from: NSNumber(value: v)) ?? "\(v)"
+    }
 }
 
 extension Color {

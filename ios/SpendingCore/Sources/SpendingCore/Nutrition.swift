@@ -321,3 +321,31 @@ public enum NutritionLogic {
         return order.compactMap { byCat[$0] }
     }
 }
+
+// MARK: - photo estimate (server/src/estimate.js)
+
+public struct FoodEstimate: Codable, Equatable, Sendable {
+    public struct Item: Codable, Equatable, Identifiable, Sendable {
+        public var id: String { name + "\(grams)" }
+        public var name: String
+        public var grams: Int
+        public var kcal: Int
+        public var protein: Double
+        public var carbs: Double
+        public var fat: Double
+    }
+
+    public var items: [Item]
+    public var kcal: Int
+    public var confidence: String // low | medium | high
+    public var note: String
+}
+
+extension Meal {
+    /// One estimated item, scaled by `portion` (1 = as estimated).
+    public init(estimate i: FoodEstimate.Item, portion: Double, date: String, meal: MealKind, purchaseId: String? = nil, itemId: String? = nil) {
+        self.init(date: date, meal: meal, name: i.name, qty: portion, kcal: Int((Double(i.kcal) * portion).rounded()),
+                  protein: round1(i.protein * portion), carbs: round1(i.carbs * portion), fat: round1(i.fat * portion),
+                  source: "photo", purchaseId: purchaseId, itemId: itemId)
+    }
+}

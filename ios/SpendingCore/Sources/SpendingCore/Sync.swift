@@ -164,9 +164,10 @@ public struct SyncClient: Sendable {
 
     private struct ErrorBody: Decodable { let error: String? }
 
-    private func request(_ keys: AccountKeys?, _ method: String, _ path: String, body: Encodable? = nil) async throws -> (Int, Data) {
+    private func request(_ keys: AccountKeys?, _ method: String, _ path: String, body: Encodable? = nil, timeout: TimeInterval? = nil) async throws -> (Int, Data) {
         var req = URLRequest(url: baseURL.appendingPathComponent(path))
         req.httpMethod = method
+        if let timeout { req.timeoutInterval = timeout }
         if let keys { req.setValue("Sync \(keys.username):\(keys.auth.base64EncodedString())", forHTTPHeaderField: "Authorization") }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -201,6 +202,14 @@ public struct SyncClient: Sendable {
     public func verify(_ keys: AccountKeys) async throws {
         let (_, data) = try await request(keys, "GET", "v1/data")
         if let blob = try JSONDecoder().decode(Remote.self, from: data).blob { _ = try blob.open(key: keys.key) }
+    }
+
+    /// Calorie estimate for a JPEG photo of food. The server answers 503 when estimates are not set up,
+    /// 422 when the photo was declined and 502 when the AI service failed (as `.server(status)`).
+    public func estimate(_ keys: AccountKeys, jpeg: Data, note: String = "") async throws -> FoodEstimate {
+        struct Body: Encodable { let image: String; let note: String }
+        let (_, data) = try await request(keys, "POST", "v1/estimate", body: Body(image: jpeg.base64EncodedString(), note: note), timeout: 90)
+        return try JSONDecoder().decode(FoodEstimate.self, from: data)
     }
 
     public func deleteAccount(_ keys: AccountKeys) async throws {

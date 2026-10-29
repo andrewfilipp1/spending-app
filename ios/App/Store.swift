@@ -83,6 +83,39 @@ final class Store {
         update { $0.purchases.removeAll { $0.id == id } }
     }
 
+    // MARK: nutrition
+
+    func upsertMeal(_ m: Meal) {
+        update { d in
+            if let i = d.meals.firstIndex(where: { $0.id == m.id }) { d.meals[i] = m } else { d.meals.append(m) }
+        }
+        Health.shared.saveMeal(m)
+    }
+
+    func deleteMeal(_ id: String) {
+        update { $0.meals.removeAll { $0.id == id } }
+        Health.shared.deleteMeal(id)
+    }
+
+    /// Saves a food to the library; a food with the same name is updated instead of duplicated.
+    func saveFood(_ f: Food) {
+        update { d in
+            let key = ItemHistory.key(f.name)
+            if let i = d.foods.firstIndex(where: { $0.id == f.id || ItemHistory.key($0.name) == key }) {
+                var g = f
+                g.id = d.foods[i].id
+                g.createdAt = d.foods[i].createdAt
+                d.foods[i] = g
+            } else {
+                d.foods.append(f)
+            }
+        }
+    }
+
+    func deleteFood(_ id: String) {
+        update { $0.foods.removeAll { $0.id == id } }
+    }
+
     func replaceAll(with newData: AppData) {
         guard loaded else { return }
         data = newData.sanitized()
@@ -174,12 +207,24 @@ final class Store {
 /// Which sheet/tab is showing.
 @MainActor @Observable
 final class Router {
-    enum Tab: Hashable { case home, history, stats, settings }
+    enum Tab: Hashable { case home, nutrition, history, stats, settings }
     var tab: Tab = .home
     var editor: EditorTarget?
+    var mealEditor: MealTarget?
+    var photo = false
 
     func newPurchase() { editor = EditorTarget(purchase: nil) }
     func edit(_ p: Purchase) { editor = EditorTarget(purchase: p) }
+    func newMeal(date: String, from item: (purchase: Purchase, item: Item)? = nil) { mealEditor = MealTarget(meal: nil, date: date, from: item) }
+    func edit(_ m: Meal) { mealEditor = MealTarget(meal: m, date: m.date) }
+}
+
+struct MealTarget: Identifiable {
+    let id = UUID()
+    var meal: Meal?
+    var date: String
+    /// A food or drink bought today that is being logged as eaten.
+    var from: (purchase: Purchase, item: Item)?
 }
 
 struct EditorTarget: Identifiable {

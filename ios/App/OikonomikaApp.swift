@@ -81,6 +81,7 @@ struct RootView: View {
                 Notifier.shared.dataChanged(store)
                 SyncManager.shared.loadAccount()
                 Task { await SyncManager.shared.syncNow() }
+                Task { await Health.shared.refresh() }
             default:
                 break
             }
@@ -97,6 +98,9 @@ struct MainTabs: View {
             HomeView()
                 .tabItem { Label("Αρχική", systemImage: "house.fill") }
                 .tag(Router.Tab.home)
+            NutritionView()
+                .tabItem { Label("Διατροφή", systemImage: "fork.knife") }
+                .tag(Router.Tab.nutrition)
             HistoryView()
                 .tabItem { Label("Ιστορικό", systemImage: "list.bullet") }
                 .tag(Router.Tab.history)
@@ -109,6 +113,12 @@ struct MainTabs: View {
         }
         .sheet(item: $router.editor) { target in
             EditorView(target: target)
+        }
+        .sheet(item: $router.mealEditor) { target in
+            MealEditorView(target: target)
+        }
+        .fullScreenCover(isPresented: $router.photo) {
+            PhotoEstimateView()
         }
     }
 }

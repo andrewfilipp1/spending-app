@@ -9,7 +9,7 @@ enum Demo {
     static var tab: Router.Tab? {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: "-tab"), i + 1 < args.count else { return nil }
-        return ["home": .home, "history": .history, "stats": .stats, "settings": .settings][args[i + 1]]
+        return ["home": .home, "nutrition": .nutrition, "history": .history, "stats": .stats, "settings": .settings][args[i + 1]]
     }
 
     static func data() -> AppData {
@@ -40,6 +40,20 @@ enum Demo {
         }
         d.purchases.append(Purchase(date: today, store: "Lidl", source: "applepay", review: true,
                                     items: [Item(name: "Lidl", cents: 2340, cat: "groceries")]))
+        d.nutrition.kcalGoal = 2200
+        d.nutrition.proteinGoal = 140
+        let meals: [(MealKind, String, Int, Double, Double, Double)] = [
+            (.breakfast, "Γιαούρτι με μέλι", 300, 18, 30, 12), (.breakfast, "Freddo espresso", 120, 4, 18, 3),
+            (.lunch, "Σουβλάκι πίτα ×2", 760, 44, 80, 28), (.snack, "Μπανάνα", 105, 1, 27, 0),
+            (.dinner, "Χωριάτικη σαλάτα", 330, 9, 12, 27), (.dinner, "Ψωμί", 160, 5, 30, 2),
+        ]
+        for back in 0...6 {
+            for (i, m) in meals.enumerated() where back > 0 || m.0 != .dinner {
+                let k = Int(Double(m.2) * (1 + Double((back * 3 + i) % 5 - 2) / 10))
+                d.meals.append(Meal(date: Days.add(today, -back), meal: m.0, name: m.1, kcal: k, protein: m.3, carbs: m.4, fat: m.5,
+                                    createdAt: Double(i)))
+            }
+        }
         return d
     }
 }

@@ -151,6 +151,14 @@ final class SyncManager {
         UserDefaults.standard.removeObject(forKey: "lastSync")
     }
 
+    var signedIn: Bool { keys != nil }
+
+    /// Calorie estimate for a photo, through the sync server (which holds the AI service key).
+    func estimate(jpeg: Data, note: String) async throws -> FoodEstimate {
+        guard let keys, let client else { throw SyncError.unauthorized }
+        return try await client.estimate(keys, jpeg: jpeg, note: note)
+    }
+
     func deleteAccount() async throws {
         guard let keys, let client else { return }
         try await client.deleteAccount(keys)

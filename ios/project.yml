@@ -16,6 +16,11 @@ targets:
       - path: App
     dependencies:
       - package: SpendingCore
+    entitlements:
+      path: App/Oikonomika.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
     settings:
       base:
         PRODUCT_NAME: Oikonomika
@@ -31,6 +36,9 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Οικονομικά
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
         INFOPLIST_KEY_NSFaceIDUsageDescription: Για να ξεκλειδώνεις τα οικονομικά σου με Face ID.
+        INFOPLIST_KEY_NSHealthShareUsageDescription: Για να δείχνει βήματα, θερμίδες κίνησης, ύπνο, παλμούς και βάρος από το ρολόι σου, και να προσαρμόζει τον στόχο θερμίδων.
+        INFOPLIST_KEY_NSHealthUpdateUsageDescription: Για να γράφει τα γεύματα που καταγράφεις (θερμίδες και macros) στην Υγεία.
+        INFOPLIST_KEY_NSCameraUsageDescription: Για να φωτογραφίζεις ένα πιάτο και να παίρνεις εκτίμηση θερμίδων.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
