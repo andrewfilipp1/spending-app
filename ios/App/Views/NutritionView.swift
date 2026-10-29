@@ -342,6 +342,11 @@ private struct BodyView: View {
                     Text("Σύνδεση").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent).disabled(asking)
+                .alert("Σύνδεση με την Υγεία", isPresented: Binding(get: { Health.shared.error != nil }, set: { if !$0 { Health.shared.error = nil } })) {
+                    Button("OK") {}
+                } message: {
+                    Text(Health.shared.error ?? "")
+                }
             }
         } else if let s = health.stats {
             BodyStatsView(stats: s)

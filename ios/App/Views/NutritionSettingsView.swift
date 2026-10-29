@@ -38,6 +38,11 @@ struct NutritionSettingsView: View {
                     Text("Βήματα, ύπνος, παλμοί και βάρος από το ρολόι σου, και τα γεύματα γράφονται στην Υγεία")
                 }
                 .disabled(asking || !Health.shared.available)
+                .alert("Σύνδεση με την Υγεία", isPresented: Binding(get: { Health.shared.error != nil }, set: { if !$0 { Health.shared.error = nil } })) {
+                    Button("OK") {}
+                } message: {
+                    Text(Health.shared.error ?? "")
+                }
                 if n.useHealth {
                     Stepper(value: Binding(get: { n.kcalAdjust }, set: { v in store.update { $0.nutrition.kcalAdjust = v } }), in: -1500...1500, step: 50) {
                         Text("Προσαρμογή στόχου")

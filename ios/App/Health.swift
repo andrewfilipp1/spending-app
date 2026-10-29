@@ -33,6 +33,8 @@ final class Health {
     private(set) var energy: HealthEnergy?
     private(set) var stats: BodyStats?
     private(set) var busy = false
+    /// Why the last access request failed, shown to the user.
+    var error: String?
 
     private let store = HKHealthStore()
     var available: Bool { HKHealthStore.isHealthDataAvailable() }
@@ -57,6 +59,11 @@ final class Health {
             try await store.requestAuthorization(toShare: Set(writes.map { $0.0 as HKSampleType }), read: reads)
             return true
         } catch {
+            let text = error.localizedDescription
+            // Sideloading (AltStore/SideStore) can drop the HealthKit entitlement when re-signing.
+            self.error = text.localizedCaseInsensitiveContains("entitlement")
+                ? "Η εφαρμογή εγκαταστάθηκε χωρίς την άδεια για την Υγεία (συνήθως όταν την υπογράφει το AltStore με δωρεάν Apple ID).\n\n\(text)"
+                : "Η Υγεία δεν έδωσε πρόσβαση.\n\n\(text)"
             return false
         }
     }
