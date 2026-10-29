@@ -18,3 +18,9 @@ CREATE TABLE IF NOT EXISTS signups (
   at    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS signups_ip ON signups (ip, at);
+-- Photo estimates per user, for the daily limit (no photos or results are kept).
+CREATE TABLE IF NOT EXISTS estimates (
+  username TEXT    NOT NULL,
+  at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS estimates_user ON estimates (username, at);

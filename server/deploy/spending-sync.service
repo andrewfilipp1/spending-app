@@ -10,6 +10,8 @@ Environment=PORT=8787
 Environment=DB_PATH=/var/lib/spending-sync/sync.db
 Environment=TRUST_PROXY=1
 Environment=ALLOWED_ORIGINS=https://andrewfilipp1.github.io
+# ANTHROPIC_API_KEY=... for photo estimates (file readable by root only)
+EnvironmentFile=-/etc/spending-sync.env
 Restart=on-failure
 RestartSec=3
 

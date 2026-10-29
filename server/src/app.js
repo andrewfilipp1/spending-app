@@ -10,6 +10,9 @@
 //   GET    /v1/data                               → { version, blob | null }
 //   PUT    /v1/data      { version, blob }        → { version } | 409 { version, blob }
 //   DELETE /v1/account                            → 204
+//   POST   /v1/estimate  { image, note? }         → calorie estimate (src/estimate.js)
+
+import { estimate } from './estimate.js';
 
 const USER_RE = /^[a-z0-9._-]{3,32}$/;
 const MAX_BODY = 5 * 1024 * 1024;
@@ -78,10 +81,12 @@ async function route(req, env) {
     const row = await env.DB.prepare('SELECT version, data FROM blobs WHERE username = ?').bind(user).first();
     return json({ error: 'conflict', version: row.version, blob: row.data ? JSON.parse(row.data) : null }, 409);
   }
+  if (pathname === '/v1/estimate' && req.method === 'POST') return estimate(await readJSON(req), user, env, json);
   if (pathname === '/v1/account' && req.method === 'DELETE') {
     await env.DB.batch([
       env.DB.prepare('DELETE FROM blobs WHERE username = ?').bind(user),
       env.DB.prepare('DELETE FROM users WHERE username = ?').bind(user),
+      env.DB.prepare('DELETE FROM estimates WHERE username = ?').bind(user),
     ]);
     return new Response(null, { status: 204 });
   }
