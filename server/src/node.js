@@ -6,7 +6,7 @@
 //   DB_PATH          default ./data/sync.db
 //   ALLOWED_ORIGINS  comma-separated, e.g. https://andrewfilipp1.github.io
 //   TRUST_PROXY=1    take the client IP from X-Real-IP (set by Caddy)
-//   ANTHROPIC_API_KEY  enables photo calorie estimates (POST /v1/estimate); ESTIMATE_MODEL, ESTIMATES_PER_DAY optional
+//   ESTIMATE_PROVIDER, ANTHROPIC_API_KEY / GEMINI_API_KEY, ESTIMATE_MODEL, ESTIMATES_PER_DAY  photo estimates (src/estimate.js)
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -61,7 +61,9 @@ const DB = {
 const env = {
   DB,
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || '',
+  ESTIMATE_PROVIDER: process.env.ESTIMATE_PROVIDER || '',
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
   ESTIMATE_MODEL: process.env.ESTIMATE_MODEL || '',
   ESTIMATES_PER_DAY: process.env.ESTIMATES_PER_DAY || '',
   clientIP: (req) => (process.env.TRUST_PROXY === '1' ? req.headers.get('X-Real-IP') : null) || req.clientAddress,

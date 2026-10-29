@@ -66,7 +66,7 @@ struct PhotoEstimateView: View {
             Label("Εκτίμηση από φωτογραφία", systemImage: "camera.viewfinder")
         } description: {
             Text(SyncManager.shared.signedIn
-                ? "Ενεργοποίησέ την στις Ρυθμίσεις → Διατροφή. Η φωτογραφία στέλνεται μέσω του server σου σε AI (Claude) για ανάλυση και δεν αποθηκεύεται."
+                ? "Ενεργοποίησέ την στις Ρυθμίσεις → Διατροφή. Η φωτογραφία στέλνεται μέσω του server σου σε AI (Claude ή Gemini) για ανάλυση."
                 : "Χρειάζεται λογαριασμός συγχρονισμού (Ρυθμίσεις → Λογαριασμός), γιατί η φωτογραφία περνά από τον server σου.")
         } actions: {
             Button("Άνοιγμα Ρυθμίσεων") {
@@ -191,7 +191,7 @@ struct PhotoEstimateView: View {
             error = switch e {
             case .offline: "Χωρίς σύνδεση. Δοκίμασε ξανά όταν έχεις internet."
             case .rateLimited: "Έφτασες το όριο εκτιμήσεων για σήμερα."
-            case .server(503): "Ο server δεν έχει ρυθμιστεί για εκτιμήσεις (λείπει το ANTHROPIC_API_KEY)."
+            case .server(503): "Ο server δεν έχει ρυθμιστεί για εκτιμήσεις (λείπει το API key του AI)."
             case .server(422): "Η φωτογραφία δεν μπόρεσε να αναλυθεί. Δοκίμασε άλλη."
             default: "Η εκτίμηση απέτυχε. Δοκίμασε ξανά."
             }

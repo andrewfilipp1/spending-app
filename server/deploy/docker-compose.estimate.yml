@@ -1,11 +1,15 @@
 # Optional: photo calorie estimates (POST /v1/estimate). Gives the sync server outgoing internet
-# access, which it otherwise does not have, so it can reach api.anthropic.com.
-#   echo ANTHROPIC_API_KEY=sk-ant-... >> .env && chmod 600 .env
+# access, which it otherwise does not have, so it can reach the AI service.
+#   In .env (chmod 600): ESTIMATE_PROVIDER=claude + ANTHROPIC_API_KEY=sk-ant-...
+#                    or: ESTIMATE_PROVIDER=gemini + GEMINI_API_KEY=...
 #   docker compose -f docker-compose.yml -f docker-compose.estimate.yml up -d --build
 services:
   sync:
     environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      ESTIMATE_PROVIDER: ${ESTIMATE_PROVIDER:-claude}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ESTIMATE_MODEL: ${ESTIMATE_MODEL:-}
       ESTIMATES_PER_DAY: ${ESTIMATES_PER_DAY:-40}
     networks: [internal, egress]
 
