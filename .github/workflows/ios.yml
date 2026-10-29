@@ -69,7 +69,7 @@ jobs:
           xcrun simctl status_bar "$DEV" override --time 9:41 --batteryLevel 100 --cellularBars 4 || true
           xcrun simctl install "$DEV" build/Build/Products/Debug-iphonesimulator/Oikonomika.app
           mkdir -p shots
-          for tab in home history stats settings; do
+          for tab in home nutrition history stats settings; do
             xcrun simctl terminate "$DEV" com.andrewfilipp.oikonomika || true
             xcrun simctl launch "$DEV" com.andrewfilipp.oikonomika -demo-data -tab $tab
             sleep 8
