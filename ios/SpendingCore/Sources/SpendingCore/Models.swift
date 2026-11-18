@@ -60,6 +60,8 @@ public struct Settings: Codable, Equatable, Sendable {
     public var unexpectedBudget: Int?
     /// Day the daily budget was first set; earlier days do not count as savings.
     public var daySince: String?
+    /// Target number of workout days per week (nil = no goal).
+    public var workoutGoal: Int?
 
     public init() {}
 
@@ -77,6 +79,7 @@ public struct Settings: Codable, Equatable, Sendable {
         carryOver = (try? c.decodeIfPresent(Bool.self, forKey: .carryOver)) ?? true
         unexpectedBudget = (try? c.decodeIfPresent(Int.self, forKey: .unexpectedBudget)) ?? nil
         daySince = (try? c.decodeIfPresent(String.self, forKey: .daySince)) ?? nil
+        workoutGoal = (try? c.decodeIfPresent(Int.self, forKey: .workoutGoal)) ?? nil
     }
 }
 
@@ -252,8 +255,15 @@ private struct LenientFood: Decodable {
     }
 }
 
+private struct LenientWorkout: Decodable {
+    let value: Workout?
+    init(from decoder: Decoder) throws {
+        value = try? Workout(from: decoder)
+    }
+}
+
 public struct AppData: Codable, Equatable, Sendable {
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
 
     public var schema: Int
     public var settings: Settings
@@ -263,6 +273,8 @@ public struct AppData: Codable, Equatable, Sendable {
     public var meals: [Meal] = []
     public var foods: [Food] = []
     public var nutrition = Nutrition()
+    // Schema 4: workouts (gymnastics log).
+    public var workouts: [Workout] = []
     // Sync bookkeeping (see SyncMerge): when settings/categories/nutrition last changed, and deleted record ids.
     public var settingsUpdatedAt: Double = 0
     public var categoriesUpdatedAt: Double = 0
@@ -284,6 +296,7 @@ public struct AppData: Codable, Equatable, Sendable {
         purchases = (try? c.decodeIfPresent([LenientPurchase].self, forKey: .purchases))?.compactMap(\.value) ?? []
         meals = (try? c.decodeIfPresent([LenientMeal].self, forKey: .meals))?.compactMap(\.value) ?? []
         foods = (try? c.decodeIfPresent([LenientFood].self, forKey: .foods))?.compactMap(\.value) ?? []
+        workouts = (try? c.decodeIfPresent([LenientWorkout].self, forKey: .workouts))?.compactMap(\.value) ?? []
         nutrition = (try? c.decodeIfPresent(Nutrition.self, forKey: .nutrition)) ?? Nutrition()
         settingsUpdatedAt = (try? c.decodeIfPresent(Double.self, forKey: .settingsUpdatedAt)) ?? 0
         categoriesUpdatedAt = (try? c.decodeIfPresent(Double.self, forKey: .categoriesUpdatedAt)) ?? 0
@@ -324,6 +337,7 @@ public struct AppData: Codable, Equatable, Sendable {
         d.settings.alertsSent = Array(s.alertsSent.suffix(60))
         if let since = s.daySince, since.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) == nil { d.settings.daySince = nil }
         if let v = s.unexpectedBudget, v < 0 || v >= 100_000_000_000 { d.settings.unexpectedBudget = nil }
+        if let v = s.workoutGoal, !(1...7).contains(v) { d.settings.workoutGoal = nil }
         for k in PeriodKind.allCases {
             if let v = s.budgets[k], v < 0 || v >= 100_000_000_000 { d.settings.budgets[k] = nil }
         }
@@ -372,9 +386,10 @@ public struct AppData: Codable, Equatable, Sendable {
             }
             return p.items.isEmpty ? nil : p
         }
-        var mealIds = Set<String>(), foodIds = Set<String>()
+        var mealIds = Set<String>(), foodIds = Set<String>(), workoutIds = Set<String>()
         d.meals = meals.compactMap { $0.sanitized() }.filter { mealIds.insert($0.id).inserted }
         d.foods = foods.compactMap { $0.sanitized() }.filter { foodIds.insert($0.id).inserted }
+        d.workouts = workouts.compactMap { $0.sanitized() }.filter { workoutIds.insert($0.id).inserted }
         d.nutrition = nutrition.sanitized()
         return d
     }

@@ -54,6 +54,19 @@ enum Demo {
                                     createdAt: Double(i)))
             }
         }
+        d.settings.workoutGoal = 4
+        let plans: [(Int, [(String, ExerciseKind, [Int])])] = [
+            (0, [("pushup", .reps, [15, 12, 10]), ("squat", .reps, [20, 20]), ("plank", .time, [45, 40])]),
+            (1, [("jacks", .time, [60, 60]), ("lunge", .reps, [12, 12]), ("crunch", .reps, [20, 18])]),
+            (3, [("pushup", .reps, [14, 12, 9]), ("bridge", .reps, [20]), ("superman", .reps, [15])]),
+            (5, [("wallsit", .time, [50]), ("highknees", .time, [40, 40]), ("mountain", .time, [30, 30])]),
+        ]
+        for (back, list) in plans {
+            for (i, w) in list.enumerated() {
+                d.workouts.append(Workout(date: Days.add(today, -back), exerciseId: w.0,
+                                          name: Exercises.byId(w.0)?.name ?? w.0, kind: w.1, sets: w.2, createdAt: Double(i)))
+            }
+        }
         return d
     }
 }

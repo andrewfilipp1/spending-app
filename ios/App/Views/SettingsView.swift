@@ -25,6 +25,14 @@ struct SettingsView: View {
                 budgetSection
                 Section {
                     NavigationLink { NutritionSettingsView() } label: { Label("Διατροφή", systemImage: "fork.knife") }
+                    Picker(selection: workoutGoalBinding) {
+                        Text("Χωρίς στόχο").tag(0)
+                        ForEach(1...7, id: \.self) { Text("\($0)× την εβδομάδα").tag($0) }
+                    } label: {
+                        Label("Στόχος γυμναστικής", systemImage: "figure.strengthtraining.traditional")
+                    }
+                } footer: {
+                    Text("Πόσες ημέρες την εβδομάδα θες να γυμνάζεσαι. Φαίνεται στην καρτέλα Υγεία → Γυμναστική.")
                 }
                 categoryBudgetSection
                 itemsSection
@@ -295,6 +303,12 @@ struct SettingsView: View {
 
     private func binding<T>(_ path: WritableKeyPath<Settings, T>) -> Binding<T> {
         Binding(get: { store.data.settings[keyPath: path] }, set: { v in store.update { $0.settings[keyPath: path] = v } })
+    }
+
+    /// The weekly workout goal as a plain Int (0 = no goal), for the picker.
+    private var workoutGoalBinding: Binding<Int> {
+        Binding(get: { store.data.settings.workoutGoal ?? 0 },
+                set: { v in store.update { $0.settings.workoutGoal = v == 0 ? nil : v } })
     }
 
     private func export(password: String?) {

@@ -16,7 +16,8 @@ struct NutritionView: View {
                 VStack(spacing: 14) {
                     Picker("Προβολή", selection: $section) {
                         Text("Διατροφή").tag(0)
-                        Text("Σώμα").tag(1)
+                        Text("Γυμναστική").tag(1)
+                        Text("Σώμα").tag(2)
                     }
                     .pickerStyle(.segmented)
 
@@ -27,6 +28,8 @@ struct NutritionView: View {
                         MealsCard(day: day)
                         if day == today { BoughtTodayCard(today: today) }
                         WeekCard(today: today)
+                    } else if section == 1 {
+                        ExercisesView(day: day, today: today) { date = $0 == today ? nil : $0 }
                     } else {
                         BodyView()
                     }
@@ -35,17 +38,24 @@ struct NutritionView: View {
                 .padding(.bottom, 24)
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("Διατροφή")
+            .navigationTitle(section == 0 ? "Διατροφή" : section == 1 ? "Γυμναστική" : "Σώμα")
             .refreshable { await Health.shared.refresh() }
             .task { await Health.shared.refresh() }
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { router.photo = true } label: { Image(systemName: "camera.fill") }
-                        .accessibilityLabel("Φωτογραφία φαγητού")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { router.newMeal(date: day) } label: { Image(systemName: "plus.circle.fill").font(.title2) }
-                        .accessibilityLabel("Νέο γεύμα")
+                if section == 0 {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { router.photo = true } label: { Image(systemName: "camera.fill") }
+                            .accessibilityLabel("Φωτογραφία φαγητού")
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { router.newMeal(date: day) } label: { Image(systemName: "plus.circle.fill").font(.title2) }
+                            .accessibilityLabel("Νέο γεύμα")
+                    }
+                } else if section == 1 {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { router.exercisePicker = true } label: { Image(systemName: "plus.circle.fill").font(.title2) }
+                            .accessibilityLabel("Νέα προπόνηση")
+                    }
                 }
             }
         }

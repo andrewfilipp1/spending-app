@@ -393,5 +393,52 @@ private func meal(_ id: String, _ date: String, _ kcal: Int, name: String? = nil
     #expect(d.meals[1].name == "Φαγητό")
     #expect(d.foods.map { "\($0.name):\($0.serving):\($0.fat)" } == ["Αυγό:1 μερίδα:5.0"])
     #expect(d.nutrition.kcalGoal == nil && d.nutrition.useHealth && d.nutrition.kcalAdjust == -300 && d.nutritionUpdatedAt == 7)
-    #expect(d.schema == 3)
+    #expect(d.schema == 4)
+}
+
+@Test func exerciseCatalogLoads() {
+    #expect(Exercises.all.count >= 10)
+    for ex in Exercises.all {
+        #expect(!ex.poses.isEmpty && ex.period > 0 && ex.hr > 0)
+        // every bone references joints present in every pose, and the head joint too
+        let names = Set(ex.bones.flatMap { $0 } + [ex.head])
+        for pose in ex.poses {
+            for n in names { #expect(pose[n] != nil, "\(ex.id) pose missing joint \(n)") }
+        }
+    }
+    #expect(Exercises.byId("pushup")?.kind == .reps)
+    #expect(Exercises.byId("plank")?.kind == .time)
+}
+
+@Test func workoutSanitizeAndStats() {
+    let bad = Workout(date: "bad", exerciseId: "pushup", name: "", kind: .reps, sets: [10])
+    #expect(bad.sanitized() == nil)
+    let w = Workout(date: "2026-11-16", exerciseId: "pushup", name: "", kind: .reps, sets: [12, 0, 2000, 10]).sanitized()
+    #expect(w?.name == "Κάμψεις" && w?.sets == [12, 1000, 10] && w?.best == 1000 && w?.total == 1022)
+
+    let workouts = [
+        Workout(date: "2026-11-16", exerciseId: "pushup", name: "Κάμψεις", kind: .reps, sets: [20], createdAt: 1),
+        Workout(date: "2026-11-16", exerciseId: "squat", name: "Καθίσματα", kind: .reps, sets: [30], createdAt: 2),
+        Workout(date: "2026-11-15", exerciseId: "pushup", name: "Κάμψεις", kind: .reps, sets: [25], createdAt: 3),
+        Workout(date: "2026-11-13", exerciseId: "plank", name: "Σανίδα", kind: .time, sets: [60], createdAt: 4),
+    ]
+    #expect(WorkoutLogic.sessionsThisWeek(workouts, today: "2026-11-16") == 3)
+    #expect(WorkoutLogic.streak(workouts, today: "2026-11-16") == 2) // 16 and 15, gap on 14
+    #expect(WorkoutLogic.bests(workouts)["pushup"]?.value == 25)
+    #expect(WorkoutLogic.day(workouts, "2026-11-16").map(\.exerciseId) == ["pushup", "squat"])
+}
+
+@Test func workoutsSyncOneByOne() {
+    var prev = AppData()
+    prev.workouts = [Workout(id: "w1", date: "2026-11-16", exerciseId: "pushup", name: "Κάμψεις", kind: .reps, sets: [20], createdAt: 1)]
+    var next = prev
+    next.workouts[0].sets = [22]
+    next.workouts.append(Workout(id: "w2", date: "2026-11-16", exerciseId: "squat", name: "Καθίσματα", kind: .reps, sets: [30], createdAt: 2))
+    SyncMerge.stampChanges(prev: prev, next: &next, now: 50)
+    #expect(next.workouts.map { "\($0.id):\(Int($0.updatedAt))" } == ["w1:50", "w2:50"])
+
+    var old = AppData() // an app version without workouts
+    old.settingsUpdatedAt = 60
+    let m = SyncMerge.merge(local: next, remote: old, now: 100)
+    #expect(m.workouts.map(\.id) == ["w1", "w2"] && m.workouts[0].sets == [22])
 }

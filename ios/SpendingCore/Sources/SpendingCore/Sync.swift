@@ -69,6 +69,7 @@ protocol SyncRecord: Equatable {
 extension Purchase: SyncRecord {}
 extension Meal: SyncRecord {}
 extension Food: SyncRecord {}
+extension Workout: SyncRecord {}
 
 public enum SyncMerge {
     static func stamp(_ p: some SyncRecord) -> Double { max(p.updatedAt, p.createdAt) }
@@ -111,6 +112,7 @@ public enum SyncMerge {
         stampRecords(prev: prev.purchases, next: &next.purchases, deleted: &next.deleted, now: now)
         stampRecords(prev: prev.meals, next: &next.meals, deleted: &next.deleted, now: now)
         stampRecords(prev: prev.foods, next: &next.foods, deleted: &next.deleted, now: now)
+        stampRecords(prev: prev.workouts, next: &next.workouts, deleted: &next.deleted, now: now)
     }
 
     /// Purchases, meals and foods merge one by one (newest edit wins, deletions win over older edits);
@@ -135,6 +137,7 @@ public enum SyncMerge {
         out.categoriesUpdatedAt = max(local.categoriesUpdatedAt, remote.categoriesUpdatedAt)
         out.meals = mergeRecords(local: local.meals, remote: remote.meals, deleted: deleted)
         out.foods = mergeRecords(local: local.foods, remote: remote.foods, deleted: deleted)
+        out.workouts = mergeRecords(local: local.workouts, remote: remote.workouts, deleted: deleted)
         out.nutrition = local.nutritionUpdatedAt > remote.nutritionUpdatedAt ? local.nutrition : remote.nutrition
         out.nutritionUpdatedAt = max(local.nutritionUpdatedAt, remote.nutritionUpdatedAt)
         let yearAgo = now - 365 * 86_400_000

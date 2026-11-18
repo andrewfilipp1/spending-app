@@ -7,7 +7,7 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "SpendingCore", targets: ["SpendingCore"])],
     targets: [
-        .target(name: "SpendingCore"),
+        .target(name: "SpendingCore", resources: [.process("Resources")]),
         .testTarget(name: "SpendingCoreTests", dependencies: ["SpendingCore"]),
     ]
 )

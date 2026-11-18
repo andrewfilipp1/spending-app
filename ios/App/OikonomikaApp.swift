@@ -99,7 +99,7 @@ struct MainTabs: View {
                 .tabItem { Label("Αρχική", systemImage: "house.fill") }
                 .tag(Router.Tab.home)
             NutritionView()
-                .tabItem { Label("Διατροφή", systemImage: "fork.knife") }
+                .tabItem { Label("Υγεία", systemImage: "heart.fill") }
                 .tag(Router.Tab.nutrition)
             HistoryView()
                 .tabItem { Label("Ιστορικό", systemImage: "list.bullet") }
@@ -116,6 +116,9 @@ struct MainTabs: View {
         }
         .sheet(item: $router.mealEditor) { target in
             MealEditorView(target: target)
+        }
+        .sheet(item: $router.workoutEditor) { target in
+            WorkoutEditorView(target: target)
         }
         .fullScreenCover(isPresented: $router.photo) {
             PhotoEstimateView()

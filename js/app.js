@@ -4,7 +4,7 @@ import { deriveKey, encryptJSON, decryptJSON, randomSalt, PBKDF2_ITERATIONS } fr
 import * as Sync from './sync.js';
 
 const APP_VERSION = self.APP_VERSION || 'dev';
-const SCHEMA = 3;
+const SCHEMA = 4;
 
 const DEFAULT_CATEGORIES = [
   { id: 'groceries', name: 'Σούπερ μάρκετ', emoji: '🛒', color: '#16a34a', budget: null },
@@ -123,6 +123,7 @@ function defaultData() {
     purchases: [],
     meals: [],
     foods: [],
+    workouts: [],
     nutrition: sanitizeNutrition({}),
   };
 }
@@ -161,6 +162,34 @@ function sanitizeFoods(list) {
       updatedAt: num(f.updatedAt, 0, Infinity),
     }))
     .filter((f) => !seen.has(f.id) && seen.add(f.id));
+}
+
+// Workouts logged (gymnastics). The web keeps no exercise UI yet, so this only
+// keeps the records valid and intact as they sync through. Mirrors Workout.sanitized() in Swift.
+const WORKOUT_KINDS = new Set(['reps', 'time']);
+function sanitizeWorkouts(list) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : [])
+    .filter((w) => w && isISODate(w.date))
+    .map((w) => {
+      const kind = WORKOUT_KINDS.has(w.kind) ? w.kind : 'reps';
+      const cap = kind === 'time' ? 36000 : 1000;
+      const sets = (Array.isArray(w.sets) ? w.sets : [])
+        .map((n) => (Number.isFinite(n) ? Math.min(Math.max(Math.round(n), 0), cap) : 0))
+        .filter((n) => n > 0)
+        .slice(0, 30);
+      return {
+        id: str(w.id, 64) || uid(),
+        date: w.date,
+        exerciseId: str(w.exerciseId, 64),
+        name: str(w.name, 80) || 'Άσκηση',
+        kind,
+        sets,
+        createdAt: num(w.createdAt, 0, Infinity),
+        updatedAt: num(w.updatedAt, 0, Infinity),
+      };
+    })
+    .filter((w) => w.sets.length && !seen.has(w.id) && seen.add(w.id));
 }
 
 // Meals eaten: values are the totals for the quantity eaten.
@@ -204,6 +233,7 @@ function sanitize(raw) {
     carryOver: rs.carryOver !== false,
     unexpectedBudget: optCents(rs.unexpectedBudget),
     daySince: isISODate(rs.daySince) ? rs.daySince : null,
+    workoutGoal: optInt(rs.workoutGoal, 1, 7),
     alertsSent: (Array.isArray(rs.alertsSent) ? rs.alertsSent : []).filter((k) => typeof k === 'string').slice(-60).map((k) => k.slice(0, 80)),
   };
   let categories = Array.isArray(raw.categories)
@@ -271,6 +301,8 @@ function sanitize(raw) {
     // Schema 3: nutrition (meals eaten, a food library and goals).
     meals: sanitizeMeals(raw.meals),
     foods: sanitizeFoods(raw.foods),
+    // Schema 4: workouts (gymnastics log).
+    workouts: sanitizeWorkouts(raw.workouts),
     nutrition: sanitizeNutrition(raw.nutrition),
     settingsUpdatedAt: stamp(raw.settingsUpdatedAt), categoriesUpdatedAt: stamp(raw.categoriesUpdatedAt),
     nutritionUpdatedAt: stamp(raw.nutritionUpdatedAt),

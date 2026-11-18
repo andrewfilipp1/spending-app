@@ -257,3 +257,20 @@ test('sync: meals and foods merge one by one, nutrition goals take the newest co
   const back = L.mergeData(old, m, 100);
   assert.equal(back.nutrition.kcalGoal, 2200);
 });
+
+const workout = (id, date, sets, extra = {}) => ({ id, date, exerciseId: 'pushup', name: 'Κάμψεις', kind: 'reps', sets, createdAt: 1, ...extra });
+
+test('sync: workouts merge one by one and survive an older app', () => {
+  const prev = { ...base(), workouts: [workout('w1', '2026-11-16', [20]), workout('w2', '2026-11-16', [30], { exerciseId: 'squat', name: 'Καθίσματα' })] };
+  const next = structuredClone(prev);
+  next.workouts[0].sets = [22];
+  next.workouts.splice(1, 1);
+  L.stampChanges(prev, next, 50);
+  assert.deepEqual(next.workouts.map((w) => [w.id, w.updatedAt]), [['w1', 50]]);
+  assert.deepEqual(next.deleted, { w2: 50 });
+
+  // An older app version (no workouts) must not wipe them on the other device.
+  const old = { ...base(), settingsUpdatedAt: 60 };
+  const m = L.mergeData(next, old, 100);
+  assert.deepEqual(m.workouts.map((w) => [w.id, w.sets]), [['w1', [22]]]);
+});

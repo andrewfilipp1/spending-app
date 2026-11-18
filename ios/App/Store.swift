@@ -116,6 +116,18 @@ final class Store {
         update { $0.foods.removeAll { $0.id == id } }
     }
 
+    // MARK: workouts
+
+    func upsertWorkout(_ w: Workout) {
+        update { d in
+            if let i = d.workouts.firstIndex(where: { $0.id == w.id }) { d.workouts[i] = w } else { d.workouts.append(w) }
+        }
+    }
+
+    func deleteWorkout(_ id: String) {
+        update { $0.workouts.removeAll { $0.id == id } }
+    }
+
     func replaceAll(with newData: AppData) {
         guard loaded else { return }
         data = newData.sanitized()
@@ -211,12 +223,17 @@ final class Router {
     var tab: Tab = .home
     var editor: EditorTarget?
     var mealEditor: MealTarget?
+    var workoutEditor: WorkoutTarget?
+    /// Opens the exercise picker in the Γυμναστική section.
+    var exercisePicker = false
     var photo = false
 
     func newPurchase() { editor = EditorTarget(purchase: nil) }
     func edit(_ p: Purchase) { editor = EditorTarget(purchase: p) }
     func newMeal(date: String, from item: (purchase: Purchase, item: Item)? = nil) { mealEditor = MealTarget(meal: nil, date: date, from: item) }
     func edit(_ m: Meal) { mealEditor = MealTarget(meal: m, date: m.date) }
+    func newWorkout(_ exercise: Exercise, date: String) { workoutEditor = WorkoutTarget(workout: nil, exercise: exercise, date: date) }
+    func edit(_ w: Workout) { workoutEditor = WorkoutTarget(workout: w, exercise: Exercises.byId(w.exerciseId), date: w.date) }
 }
 
 struct MealTarget: Identifiable {
@@ -230,4 +247,11 @@ struct MealTarget: Identifiable {
 struct EditorTarget: Identifiable {
     let id = UUID()
     var purchase: Purchase?
+}
+
+struct WorkoutTarget: Identifiable {
+    let id = UUID()
+    var workout: Workout?
+    var exercise: Exercise?
+    var date: String
 }

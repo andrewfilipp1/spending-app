@@ -353,7 +353,7 @@ export function canon(v) {
 const stampOf = (p) => Math.max(p.updatedAt || 0, p.createdAt || 0);
 
 // Lists merged record by record. Ids are unique across them, so they share `deleted`.
-const RECORDS = ['purchases', 'meals', 'foods'];
+const RECORDS = ['purchases', 'meals', 'foods', 'workouts'];
 
 // Marks what changed between the last saved data and the new data, so another device can tell
 // which copy is newer: settings/categories/nutrition get a timestamp, edited records (purchases,
@@ -411,6 +411,7 @@ export function mergeData(local, remote, now = Date.now()) {
     purchases,
     meals: records('meals'),
     foods: records('foods'),
+    workouts: records('workouts'),
     nutrition: (local.nutritionUpdatedAt || 0) > (remote.nutritionUpdatedAt || 0) ? local.nutrition : remote.nutrition,
     nutritionUpdatedAt: Math.max(local.nutritionUpdatedAt || 0, remote.nutritionUpdatedAt || 0),
     deleted: Object.fromEntries(Object.entries(deleted).filter(([, t]) => t > yearAgo)),
